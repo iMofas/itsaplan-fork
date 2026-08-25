@@ -20,8 +20,8 @@ Itsaplan разворачивается не на Mac Mini, а на отдель
 
 Для Itsaplan нужны два адреса:
 
-- `https://plan.evolveronline.uk` — web;
-- `https://api.plan.evolveronline.uk` — API.
+- `https://its.evolveronline.uk` — web;
+- `https://api-its.evolveronline.uk` — API.
 
 Перед web и API будет Cloudflare Access только для владельца. Затем остаётся
 собственная авторизация Itsaplan как второй слой.
