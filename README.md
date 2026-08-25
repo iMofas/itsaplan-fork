@@ -2,6 +2,10 @@
 
 <img src="assets/banner.png" alt="It's a Plan — open-source project management and issue tracking where people and AI agents ship together" width="100%" />
 
+<a href="https://www.producthunt.com/products/it-s-a-plan/reviews/new?utm_source=badge-product_review&utm_medium=badge">
+  <img src="assets/product-hunt-strip.svg" alt="It's a Plan is on Product Hunt — leave a review" width="100%" />
+</a>
+
 ### Open-source project management and issue tracking, with AI agents built in
 
 Self-hosted, open-source project management and issue tracking, and an alternative to Linear,
@@ -37,6 +41,12 @@ server and database.
 
 Heads-up: this is under active development. Expect breaking changes before the first
 stable release.
+
+## Need a feature sooner?
+
+The roadmap is ours, but the order is negotiable. If you need a feature with a high
+priority, write to [@croffasia on Telegram](https://telegram.me/croffasia) - for a
+donation we can discuss moving it up the queue.
 
 ## Features
 

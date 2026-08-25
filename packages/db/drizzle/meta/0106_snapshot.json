@@ -1,6 +1,6 @@
 {
-  "id": "2975538f-664b-4525-8e41-fee5a4e82352",
-  "prevId": "35e37400-48ca-411c-8db2-b0c35eab7f5a",
+  "id": "ded89687-fe8b-4e2a-824b-5c8438bf0607",
+  "prevId": "4ec3f86c-7e21-4142-ab42-5a01bc1ea0bd",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4221,6 +4221,143 @@
       },
       "isRLSEnabled": false
     },
+    "public.issue_status": {
+      "name": "issue_status",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "issue_id": {
+          "name": "issue_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_id": {
+          "name": "column_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "column_name": {
+          "name": "column_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state_type": {
+          "name": "state_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entered_at": {
+          "name": "entered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "left_at": {
+          "name": "left_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "issue_status_issue_idx": {
+          "name": "issue_status_issue_idx",
+          "columns": [
+            {
+              "expression": "issue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entered_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "issue_status_column_idx": {
+          "name": "issue_status_column_idx",
+          "columns": [
+            {
+              "expression": "column_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"issue_status\".\"column_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "issue_status_open_idx": {
+          "name": "issue_status_open_idx",
+          "columns": [
+            {
+              "expression": "issue_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"issue_status\".\"left_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "issue_status_issue_id_issue_id_fk": {
+          "name": "issue_status_issue_id_issue_id_fk",
+          "tableFrom": "issue_status",
+          "tableTo": "issue",
+          "columnsFrom": [
+            "issue_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "issue_status_column_id_project_column_id_fk": {
+          "name": "issue_status_column_id_project_column_id_fk",
+          "tableFrom": "issue_status",
+          "tableTo": "project_column",
+          "columnsFrom": [
+            "column_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.issue_type": {
       "name": "issue_type",
       "schema": "",
@@ -5066,7 +5203,7 @@
           "name": "project_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "channel": {
           "name": "channel",
@@ -6398,6 +6535,67 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.telegram_deadline_digest": {
+      "name": "telegram_deadline_digest",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "digest_date": {
+          "name": "digest_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "telegram_deadline_digest_user_id_user_id_fk": {
+          "name": "telegram_deadline_digest_user_id_user_id_fk",
+          "tableFrom": "telegram_deadline_digest",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "telegram_deadline_digest_user_date_unique": {
+          "name": "telegram_deadline_digest_user_date_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "digest_date"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.user_notification_preference": {
       "name": "user_notification_preference",
       "schema": "",
@@ -6683,6 +6881,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "daily_deadline_digest_enabled": {
+          "name": "daily_deadline_digest_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
         },
         "link_code": {
           "name": "link_code",

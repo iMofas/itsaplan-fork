@@ -2,7 +2,7 @@ import {
   db,
   project as projectTable,
   issue,
-  issueActivity,
+  issueStatus,
   issueLabel,
   label,
   projectColumn,
@@ -53,7 +53,9 @@ import {
   type IssueSnapshot,
 } from './activity';
 import { autoWatchIssue } from './watchers';
+import { attachLoggedMinutes } from './worklogs';
 import { recordCycleChange } from './cycle-history';
+import { recordStatusChange } from './status-history';
 import { mapAttachment, type AttachmentRow } from '#modules/attachments/service';
 import { notifyIssueChange, notifyTextMentions } from '#modules/notifications/service';
 import { emitWebhookEvent } from '#modules/webhooks/emit';
@@ -112,6 +114,10 @@ export interface IssueRow {
   // Time is in minutes; the UI enters and shows it as hours and minutes.
   estimatePoints: number | null;
   estimateMinutes: number | null;
+  // The time logged against the issue: the sum of its worklog entries, 0 when
+  // nothing was logged. Carried here so a board reads it without a request per
+  // issue. Populated by attachLoggedMinutes; mapIssue alone leaves it at 0.
+  loggedMinutes: number;
   startDate: string | null;
   dueDate: string | null;
   position: number;
@@ -158,6 +164,7 @@ function mapIssue(row: typeof issue.$inferSelect, projectKey: string): IssueRow 
     priority: row.priority,
     estimatePoints: numOrNull(row.estimatePoints),
     estimateMinutes: row.estimateMinutes,
+    loggedMinutes: 0,
     startDate: row.startDate,
     dueDate: row.dueDate,
     position: num(row.position),
@@ -172,34 +179,24 @@ function mapIssue(row: typeof issue.$inferSelect, projectKey: string): IssueRow 
   };
 }
 
-// Sets each issue's statusSince to the newest status-change activity's timestamp,
-// leaving the createdAt default (set by mapIssue) for issues that never changed
-// column. One grouped query for the whole set. Mutates the passed issues in place.
+// Sets each issue's statusSince to when it entered the column it is in now, leaving
+// the createdAt default (set by mapIssue) for an issue with no open stretch. One
+// query for the whole set. Mutates the passed issues in place.
 async function attachStatusSince(issues: IssueRow[]): Promise<void> {
   if (issues.length === 0) return;
   const rows = await db
-    .select({
-      issueId: issueActivity.issueId,
-      // A raw sql aggregate is not mapped to a Date by Drizzle (that mapping is
-      // keyed on a column type), so this comes back as the Postgres timestamp
-      // string; parse it before iso(), the same way Drizzle decodes a timestamp
-      // column.
-      lastStatusAt: sql<string | null>`max(${issueActivity.createdAt})`,
-    })
-    .from(issueActivity)
+    .select({ issueId: issueStatus.issueId, enteredAt: issueStatus.enteredAt })
+    .from(issueStatus)
     .where(
       and(
         inArray(
-          issueActivity.issueId,
+          issueStatus.issueId,
           issues.map((i) => i.id),
         ),
-        eq(issueActivity.action, 'status'),
+        isNull(issueStatus.leftAt),
       ),
-    )
-    .groupBy(issueActivity.issueId);
-  const byIssue = new Map<number, string>();
-  for (const r of rows)
-    if (r.issueId != null && r.lastStatusAt) byIssue.set(r.issueId, iso(new Date(r.lastStatusAt)));
+    );
+  const byIssue = new Map(rows.map((r) => [r.issueId, iso(r.enteredAt)]));
   for (const i of issues) i.statusSince = byIssue.get(i.id) ?? i.statusSince;
 }
 
@@ -234,6 +231,7 @@ export async function listIssues(project: ProjectRow): Promise<IssueRow[]> {
   await attachFieldValues(issues);
   await attachStatusSince(issues);
   await attachGroupings(issues);
+  await attachLoggedMinutes(issues);
   return issues;
 }
 
@@ -250,6 +248,7 @@ export async function listArchivedIssues(project: ProjectRow): Promise<IssueRow[
   await attachFieldValues(issues);
   await attachStatusSince(issues);
   await attachGroupings(issues);
+  await attachLoggedMinutes(issues);
   return issues;
 }
 
@@ -654,6 +653,7 @@ export async function getIssues(ids: number[]): Promise<IssueRow[]> {
   await attachLabels(issues);
   await attachStatusSince(issues);
   await attachGroupings(issues);
+  await attachLoggedMinutes(issues);
   return issues;
 }
 
@@ -674,6 +674,7 @@ export async function getIssueBySequence(
   await attachLabels([mapped]);
   await attachStatusSince([mapped]);
   await attachGroupings([mapped]);
+  await attachLoggedMinutes([mapped]);
   return mapped;
 }
 
@@ -841,7 +842,7 @@ export async function createIssue(
   // An issue created in a column enters it the same way a moved one does, so the
   // column's auto-assignee applies. An assignee sent with the create wins over it.
   const assigneeUserId = input.assigneeUserId ?? (await columnAutoAssignee(input.columnId));
-  const issueId = await db.transaction(async (tx) => {
+  const { id: issueId, createdAt } = await db.transaction(async (tx) => {
     const [seqRow] = await tx
       .update(projectTable)
       .set({ nextSequence: sql`next_sequence + 1` })
@@ -873,10 +874,13 @@ export async function createIssue(
         dueDate: input.dueDate ?? null,
         position: Number(posRow.pos),
       })
-      .returning({ id: issue.id });
-    return row.id;
+      .returning({ id: issue.id, createdAt: issue.createdAt });
+    return row;
   });
 
+  // The first stretch of the status history starts when the issue does, so the
+  // entries of its creation fall inside it.
+  await recordStatusChange([issueId], input.columnId, createdAt);
   await recordActivity(issueId, [{ action: 'created' }], actorUserId);
   if (input.cycleId != null) await recordCycleChange(issueId, null, input.cycleId);
   if (input.parentId != null) await recordParentChange(issueId, null, input.parentId, actorUserId);
@@ -1051,6 +1055,8 @@ export async function updateIssue(
   const after = await getIssue(id);
   if (after) {
     const afterSnapshot = snapshot(after);
+    if (before.columnId !== afterSnapshot.columnId)
+      await recordStatusChange([id], afterSnapshot.columnId);
     await logIssueUpdate(before, afterSnapshot, actor);
     await recordCycleChange(id, before.cycleId, afterSnapshot.cycleId);
     if (before.parentId !== after.parentId)

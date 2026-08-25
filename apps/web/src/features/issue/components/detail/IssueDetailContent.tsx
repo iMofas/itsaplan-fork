@@ -6,11 +6,12 @@ import { usePersistedWidth } from '@/hooks/usePersistedWidth';
 import { useProjectFeatures } from '@/hooks/useProjectFeatures';
 import ResizeGrip from '@/components/common/ResizeGrip';
 import { useIssueDetail } from '../../hooks/useIssueDetail';
-import { usePersistedOpen } from '../../hooks/usePersistedOpen';
+import { usePersistedOpen, usePersistedOpenGroups } from '../../hooks/usePersistedOpen';
 import { useFilePaste } from '../../hooks/useFilePaste';
 import IssueAttachmentsPanel from './IssueAttachmentsPanel';
 import IssueChecklistsPanel from './IssueChecklistsPanel';
 import IssueLinksPanel from './IssueLinksPanel';
+import IssueWorklogPanel from './IssueWorklogPanel';
 import IssueSubtasksPanel from './IssueSubtasksPanel';
 import IssueActivityFeed from './IssueActivityFeed';
 import LastCommentBubble from './LastCommentBubble';
@@ -74,6 +75,7 @@ export default function IssueDetailContent({
   const features = useProjectFeatures();
   useFilePaste(canEdit && issue ? (files) => void attachFiles(files) : null);
   const properties = usePersistedOpen('issue-properties-open');
+  const propertyGroups = usePersistedOpenGroups('issue-property-groups-closed');
   const { width: propertiesWidth, setWidth: setPropertiesWidth } = usePersistedWidth(
     propertiesWidthKey(project.project.key),
     PROPERTIES_W,
@@ -178,6 +180,8 @@ export default function IssueDetailContent({
 
       {features.checklists && <IssueChecklistsPanel issue={issue} />}
 
+      {features.timeLogging && <IssueWorklogPanel project={project} issue={issue} />}
+
       <IssueLinksPanel project={project} issue={issue} />
     </>
   );
@@ -197,6 +201,7 @@ export default function IssueDetailContent({
       className={className}
       open={properties.open}
       onToggle={properties.toggle}
+      groupsOpen={propertyGroups}
     />
   );
   // In a sidebar the section follows the actions row, which needs less room above
