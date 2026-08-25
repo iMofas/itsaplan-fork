@@ -20,11 +20,10 @@ export interface SendInput {
   channel: 'email' | 'telegram';
   recipient: string | null;
   payload: DeliveryPayload;
-  config: NotificationConfig | null;
+  config: NotificationConfig;
 }
 
 async function sendNotificationEmail(input: SendInput): Promise<SendResult> {
-  if (!input.config) return { ok: false, retryable: false, error: 'email not configured' };
   if (!input.recipient) return { ok: false, retryable: false, error: 'no recipient' };
   // The project's own provider when it configured one, otherwise the instance
   // provider (which carries its own From address). A project set to the instance
@@ -47,15 +46,15 @@ async function sendNotificationEmail(input: SendInput): Promise<SendResult> {
 }
 
 async function sendTelegram(input: SendInput): Promise<SendResult> {
-  const telegram = input.config?.telegram;
-  if (telegram && !telegram.enabled) {
+  const { telegram } = input.config;
+  if (!telegram.enabled) {
     return { ok: false, retryable: false, error: 'telegram not configured' };
   }
   // The project's own bot when it set one, otherwise the instance bot the members
   // linked their accounts through.
-  const instance = telegram?.botToken ? null : await getInstanceBotConfig();
+  const instance = telegram.botToken ? null : await getInstanceBotConfig();
   const botToken =
-    telegram?.botToken || (instance && isInstanceBotUsable(instance) ? instance.botToken : '');
+    telegram.botToken || (instance && isInstanceBotUsable(instance) ? instance.botToken : '');
   if (!botToken) return { ok: false, retryable: false, error: 'telegram not configured' };
   if (!input.recipient) return { ok: false, retryable: false, error: 'no chat id' };
   const chatId = input.recipient;

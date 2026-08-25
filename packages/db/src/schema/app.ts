@@ -697,7 +697,6 @@ export const userTelegramAccount = pgTable(
     // which Telegram account this is. A Telegram account may have no @username.
     username: text('username'),
     firstName: text('first_name'),
-    dailyDeadlineDigestEnabled: boolean('daily_deadline_digest_enabled').notNull().default(true),
     linkCode: text('link_code'),
     linkCodeExpiresAt: timestamp('link_code_expires_at', { withTimezone: true }),
     linkedAt: timestamp('linked_at', { withTimezone: true }),
@@ -713,19 +712,6 @@ export const userTelegramAccount = pgTable(
   ],
 );
 
-export const telegramDeadlineDigest = pgTable(
-  'telegram_deadline_digest',
-  {
-    id: serial('id').primaryKey(),
-    userId: text('user_id')
-      .notNull()
-      .references(() => user.id, { onDelete: 'cascade' }),
-    digestDate: date('digest_date').notNull(),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [unique('telegram_deadline_digest_user_date_unique').on(t.userId, t.digestDate)],
-);
-
 // Outbox for outbound notification delivery. One row per (recipient, channel,
 // message) to send for an issue event: an email or a Telegram message to one member.
 // Rows are enqueued when inbox notifications are created (see
@@ -739,7 +725,9 @@ export const notificationDelivery = pgTable(
   'notification_delivery',
   {
     id: serial('id').primaryKey(),
-    projectId: integer('project_id').references(() => project.id, { onDelete: 'cascade' }),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
     channel: text('channel').notNull(),
     recipient: text('recipient'),
     // Composed message: { subject?, text, html?, url? }. Owned by the sender.

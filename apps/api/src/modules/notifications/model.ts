@@ -61,7 +61,7 @@ export const setNotificationReadBody = t.Optional(t.Object({ read: t.Optional(t.
 export const snoozeNotificationBody = t.Object({ until: t.Nullable(t.String()) });
 
 export const sendDeliveryBody = t.Object({
-  projectId: t.Nullable(t.Number()),
+  projectId: t.Number(),
   channel: t.UnionEnum(['email', 'telegram']),
   recipient: t.Nullable(t.String()),
   payload: t.Object({

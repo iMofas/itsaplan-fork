@@ -1,7 +1,6 @@
 import { workerConfig } from './config';
 import { deliver } from './delivery';
 import { processNotificationDeliveries } from './notification-delivery';
-import { enqueueDeadlineDigests } from './deadline-digests';
 import { equalJitterBackoffMs } from './backoff';
 import { deleteIssueAgentThreads } from './agent-runs';
 import { startPollLoop, type WorkerHandle } from './poll-loop';
@@ -36,7 +35,6 @@ async function tick(): Promise<void> {
     await Promise.all(claimed.map(processDelivery));
   }
   await processNotificationDeliveries();
-  await enqueueDeadlineDigests();
   if (++ticksSinceCleanup >= cfg.cleanupEveryTicks) {
     ticksSinceCleanup = 0;
     const removed = await cleanupOldDeliveries();
