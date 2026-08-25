@@ -4,7 +4,7 @@
 
 - Создана резервная копия проекта: `https://github.com/iMofas/itsaplan-fork`.
 - Эталонный экземпляр развёрнут на VPS из ревизии
-  `b56adbee131122c7ba96cb0e5d9cab2e6f13f3a4`.
+  `cd5efa4`.
 - Веб-приложение доступно по адресу `https://its.evolveronline.uk`.
 - API доступен по адресу `https://api-its.evolveronline.uk`.
 - На VPS работает Docker-стек Itsaplan за Caddy. Веб-приложение и API доступны
@@ -81,4 +81,6 @@
 ## Следующие шаги
 
 1. Настроить штатного Telegram-бота и предпочтения уведомлений в Itsaplan.
-2. Развернуть ежедневную сводку дедлайнов и проверить доставку сообщения на VPS.
+2. Проверить доставку ежедневной сводки после подключения Telegram-бота.
+3. Следующее обновление выполнять по
+   [`docs/vps-update-runbook.ru.md`](docs/vps-update-runbook.ru.md).
