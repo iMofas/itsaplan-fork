@@ -1,0 +1,14 @@
+services:
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-03-12T17-29-24Z
+
+  api:
+    ports: !override
+      - '127.0.0.1:${API_PORT:-8102}:3000'
+
+  web:
+    ports: !override
+      - '127.0.0.1:${WEB_PORT:-8101}:3001'
