@@ -13,7 +13,7 @@ import { postInternal } from './internal-api';
 
 interface ClaimedNotification {
   id: number;
-  projectId: number;
+  projectId: number | null;
   channel: string;
   recipient: string | null;
   payload: unknown;

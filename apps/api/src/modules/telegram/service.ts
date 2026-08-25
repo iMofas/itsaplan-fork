@@ -258,6 +258,7 @@ export async function confirmTelegramLink(input: ConfirmLinkInput): Promise<Conf
       chatId: input.chatId,
       username: input.username,
       firstName: input.firstName,
+      dailyDeadlineDigestEnabled: true,
       linkedAt: new Date(),
       linkCode: null,
       linkCodeExpiresAt: null,

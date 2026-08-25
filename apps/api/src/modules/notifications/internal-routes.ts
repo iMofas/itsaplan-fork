@@ -20,7 +20,7 @@ export const internalNotificationRoutes = new Elysia({
       set.status = 401;
       return { ok: false, retryable: false, error: 'Unauthorized' };
     }
-    const config = await getDeliveryConfig(body.projectId);
+    const config = body.projectId == null ? null : await getDeliveryConfig(body.projectId);
     return sendDelivery({
       channel: body.channel,
       recipient: body.recipient,

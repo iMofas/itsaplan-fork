@@ -26,6 +26,16 @@ the same edit as the code it describes, or delete it. Layout and styling are nev
 no notes on positioning, sticky or overflow behaviour, spacing, or why a class is set. The full
 rules, and the pass that removes comments that no longer hold, are in the `tidy` skill.
 
+## Personal Itsaplan workflow
+
+Before interacting with the personal Itsaplan instance, read
+`docs/personal-agent-convention.ru.md` in full. It defines the workflow for Denis and
+his agents: agent identities, Russian Itsaplan content, tasks, statuses, deadlines,
+comments, initiatives, checklists, notes, Telegram notifications and MCP setup.
+
+When an issue is created in the `INFR` project for work on Itsaplan itself, its title
+starts with `[ИТС]`.
+
 ## Writing style (docs, comments, chat)
 
 Write plainly and literally. This applies to all prose: documentation, code comments, commit
