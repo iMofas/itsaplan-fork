@@ -1,12 +1,12 @@
 // React Query hooks for everything the settings feature reads and writes: the
 // project's structural entities (columns, issue types, labels and label groups,
-// custom fields), the workflow configuration, the project notification delivery
+// custom fields, issue templates), the workflow configuration, the project notification delivery
 // settings, and the session member's own notification preferences. Structural
 // writes go through useProjectMutation and invalidate the project detail; the
 // settings and notification writes return the stored result and put it straight
 // into the cache. This module wraps the low-level fetch client (api.ts).
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   api,
   type AutoArchiveSettings,
@@ -174,6 +174,65 @@ export function useRegenerateGitSecret(projectKey: string) {
   return useMutation({
     mutationFn: () => api.regenerateGitSecret(projectKey),
     onSuccess: (data) => qc.setQueryData(qk.gitSettings(projectKey), data),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.gitConnections(projectKey) }),
+  });
+}
+
+export function useGitProviderConnectionsQuery(projectKey: string) {
+  return useQuery({
+    queryKey: qk.gitConnections(projectKey),
+    queryFn: () => api.listGitProviderConnections(projectKey),
+  });
+}
+
+export function useConnectGitProvider(projectKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof api.connectGitProvider>[1]) =>
+      api.connectGitProvider(projectKey, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.gitConnections(projectKey) }),
+  });
+}
+
+export function useDisconnectGitProvider(projectKey: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (connectionId: number) => api.disconnectGitProvider(projectKey, connectionId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.gitConnections(projectKey) }),
+  });
+}
+
+export function useAvailableGitRepositoriesQuery(
+  projectKey: string,
+  connectionId: number,
+  search: string,
+  enabled: boolean,
+) {
+  return useInfiniteQuery({
+    queryKey: qk.gitAvailableRepositories(projectKey, connectionId, search),
+    queryFn: ({ pageParam }) =>
+      api.listAvailableGitRepositories(projectKey, connectionId, { search, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (page) => page.nextPage ?? undefined,
+    enabled,
+  });
+}
+
+export function useConnectGitRepositories(projectKey: string, connectionId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (externalIds: string[]) =>
+      api.connectGitRepositories(projectKey, connectionId, externalIds),
+    onSettled: () => qc.invalidateQueries({ queryKey: qk.gitConnections(projectKey) }),
+  });
+}
+
+export function useDisconnectGitRepository(projectKey: string, connectionId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (repositoryId: number) =>
+      api.disconnectGitRepository(projectKey, connectionId, repositoryId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.gitConnections(projectKey) }),
   });
 }
 
@@ -243,4 +302,24 @@ export function useUpdateCustomField(projectKey: string) {
 
 export function useDeleteCustomField(projectKey: string) {
   return useProjectMutation(projectKey, (id: number) => api.deleteCustomField(projectKey, id));
+}
+
+// Issue templates. The project detail carries the list, so the writes only have to
+// invalidate it.
+export function useCreateIssueTemplate(projectKey: string) {
+  return useProjectMutation(projectKey, (input: Parameters<typeof api.createIssueTemplate>[1]) =>
+    api.createIssueTemplate(projectKey, input),
+  );
+}
+
+export function useUpdateIssueTemplate(projectKey: string) {
+  return useProjectMutation(
+    projectKey,
+    ({ id, patch }: { id: number; patch: Parameters<typeof api.updateIssueTemplate>[2] }) =>
+      api.updateIssueTemplate(projectKey, id, patch),
+  );
+}
+
+export function useDeleteIssueTemplate(projectKey: string) {
+  return useProjectMutation(projectKey, (id: number) => api.deleteIssueTemplate(projectKey, id));
 }

@@ -13,6 +13,7 @@ import { DEFAULT_TIMEZONE } from '#modules/user-preferences/service';
 import {
   defaultMemberPermissions,
   fullPermissions,
+  hasPermission,
   normalizePermissions,
   type Permissions,
 } from '#shared/permissions';
@@ -22,6 +23,10 @@ import {
 // any entity and look for the current user here.
 
 export type MemberRole = 'owner' | 'member';
+
+// How a membership came about. 'scim' rows are owned by the group reconciliation,
+// which rewrites them on every sync, so they are not editable by hand.
+export type MemberSource = 'invite' | 'scim';
 
 export interface MemberRow {
   userId: string;
@@ -45,6 +50,7 @@ export interface MemberRow {
   // join by agent creation, not an invite, so their role and access are managed on
   // the AI Agents screen, not here.
   isAgent: boolean;
+  source: MemberSource;
   createdAt: string;
 }
 
@@ -55,6 +61,19 @@ export interface MemberRow {
 export interface MemberContext {
   role: MemberRole;
   permissions: Permissions;
+}
+
+// Where a membership came from, or null when the user is not a member. Read by the
+// routes that edit a membership, which refuse to touch a row SCIM owns.
+export async function getMembershipSource(
+  projectId: number,
+  userId: string,
+): Promise<MemberSource | null> {
+  const rows = await db
+    .select({ source: projectMember.source })
+    .from(projectMember)
+    .where(and(eq(projectMember.projectId, projectId), eq(projectMember.userId, userId)));
+  return rows[0] ? (rows[0].source as MemberSource) : null;
 }
 
 // The current user's role in a project, or null when they are not a member.
@@ -129,6 +148,7 @@ export interface AssigneeCandidate {
   // The user an 'owner'-scoped external agent works for: only their runs reach its
   // runner, so delegating it to anyone else does nothing. Null for everyone else.
   restrictedToUserId: string | null;
+  canReadWorkItems: boolean;
 }
 
 export async function listAssigneeCandidates(projectId: number): Promise<AssigneeCandidate[]> {
@@ -141,6 +161,7 @@ export async function listAssigneeCandidates(projectId: number): Promise<Assigne
         username: user.username,
         image: user.image,
         role: projectMember.role,
+        permissions: projectRole.permissions,
         description: projectMember.description,
       })
       .from(projectMember)
@@ -149,6 +170,7 @@ export async function listAssigneeCandidates(projectId: number): Promise<Assigne
       // permissions). It is listed below as kind 'agent', so it is excluded here to
       // keep the member candidates real people only. Same agent test as listMembers.
       .leftJoin(aiAgent, eq(aiAgent.userId, projectMember.userId))
+      .leftJoin(projectRole, eq(projectRole.id, projectMember.roleId))
       .where(and(eq(projectMember.projectId, projectId), isNull(aiAgent.id))),
     db
       .select({
@@ -165,18 +187,23 @@ export async function listAssigneeCandidates(projectId: number): Promise<Assigne
       .innerJoin(user, eq(user.id, aiAgent.userId))
       .where(eq(aiAgent.projectId, projectId)),
   ]);
-  const members: AssigneeCandidate[] = memberRows.map((r) => ({
-    userId: r.userId,
-    name: r.name,
-    email: r.email,
-    username: r.username,
-    image: r.image,
-    kind: 'member',
-    agentKind: null,
-    role: r.role as MemberRole,
-    description: r.description,
-    restrictedToUserId: null,
-  }));
+  const members: AssigneeCandidate[] = memberRows.map((r) => {
+    const context = toMemberContext(r.role as MemberRole, r.permissions);
+    return {
+      userId: r.userId,
+      name: r.name,
+      email: r.email,
+      username: r.username,
+      image: r.image,
+      kind: 'member',
+      agentKind: null,
+      role: r.role as MemberRole,
+      description: r.description,
+      restrictedToUserId: null,
+      canReadWorkItems:
+        context.role === 'owner' || hasPermission(context.permissions, 'work_items', 'read'),
+    };
+  });
   const agents: AssigneeCandidate[] = agentRows.map((r) => ({
     userId: r.userId,
     name: r.name,
@@ -188,6 +215,7 @@ export async function listAssigneeCandidates(projectId: number): Promise<Assigne
     role: null,
     description: null,
     restrictedToUserId: r.runnerScope === 'owner' ? r.ownerUserId : null,
+    canReadWorkItems: false,
   }));
   return [...members, ...agents].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -205,6 +233,7 @@ export async function listMembers(projectId: number): Promise<MemberRow[]> {
       roleId: projectMember.roleId,
       roleName: projectRole.name,
       description: projectMember.description,
+      source: projectMember.source,
       agentId: aiAgent.id,
       createdAt: projectMember.createdAt,
     })
@@ -227,6 +256,7 @@ export async function listMembers(projectId: number): Promise<MemberRow[]> {
     roleName: r.roleName,
     description: r.description,
     isAgent: r.agentId !== null,
+    source: r.source as MemberSource,
     createdAt: iso(r.createdAt),
   }));
 }

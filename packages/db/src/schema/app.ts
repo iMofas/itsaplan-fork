@@ -67,6 +67,7 @@ export const project = pgTable('project', {
   // come back with it.
   initiativesEnabled: boolean('initiatives_enabled').notNull().default(true),
   dashboardsEnabled: boolean('dashboards_enabled').notNull().default(true),
+  documentsEnabled: boolean('documents_enabled').notNull().default(true),
   notesEnabled: boolean('notes_enabled').notNull().default(true),
   cyclesEnabled: boolean('cycles_enabled').notNull().default(true),
   subtasksEnabled: boolean('subtasks_enabled').notNull().default(true),
@@ -221,11 +222,17 @@ export const projectMember = pgTable(
     // members page and given to agents so they can pick who to tag on an unassigned
     // issue. Empty string when unset.
     description: text('description').notNull().default(''),
+    // How this membership came about. 'invite' is a person accepting an invite;
+    // 'scim' is a row the SCIM group reconciliation created and therefore owns —
+    // it only ever updates or removes its own rows, so a sync never undoes a
+    // membership someone set up by hand.
+    source: text('source').notNull().default('invite'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     primaryKey({ columns: [t.projectId, t.userId] }),
     check('project_member_role_check', sql`${t.role} IN ('owner', 'member')`),
+    check('project_member_source_check', sql`${t.source} IN ('invite', 'scim')`),
     index('project_member_user_idx').on(t.userId),
   ],
 );
@@ -498,6 +505,11 @@ export const agentRun = pgTable(
     nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
     lastError: text('last_error'),
     output: text('output'),
+    // What the last model call of the run read and wrote, cache included. Null for a run
+    // that finished before this was recorded, and for one whose agent reports no counts;
+    // the run history shows nothing for either.
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -602,6 +614,50 @@ export const agentChatEvent = pgTable(
   (t) => [index('agent_chat_event_message_idx').on(t.messageId, t.id)],
 );
 
+// The token counts of the last completed answer of one chat thread, which is what the
+// chat panel shows as the size of that conversation's context. One row per thread,
+// overwritten by every answer: only the last number says how close the conversation is
+// to the agent's limit. Null counts mean the agent reports none that can be read as a
+// context size, which the panel shows as a dash. An autonomous run keeps its own counts
+// on agent_run instead, one row per run.
+//
+// A thread of an external agent is stored in agent_chat_thread and one of an internal
+// agent in Mastra's own tables, so the row carries no foreign key to a thread. Every id
+// is minted by runtime/thread-ids, which prefixes each kind of thread with what it is
+// scoped to, so no two kinds collide. The row is deleted where the thread is deleted,
+// and the cascade covers the deletion of the agent.
+export const agentChatUsage = pgTable(
+  'agent_chat_usage',
+  {
+    threadId: text('thread_id').primaryKey(),
+    agentId: integer('agent_id')
+      .notNull()
+      .references(() => aiAgent.id, { onDelete: 'cascade' }),
+    inputTokens: integer('input_tokens'),
+    outputTokens: integer('output_tokens'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('agent_chat_usage_agent_idx').on(t.agentId)],
+);
+
+// The conversations a member has starred, so they stay within reach in the chat
+// history. Like agent_chat_usage the row carries no foreign key to the thread: an
+// internal agent's thread lives in Mastra's own tables. Deleting a thread deletes its
+// row; a row left behind is harmless, since the history is built from the threads.
+export const agentChatFavorite = pgTable(
+  'agent_chat_favorite',
+  {
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    agentId: integer('agent_id')
+      .notNull()
+      .references(() => aiAgent.id, { onDelete: 'cascade' }),
+    threadId: text('thread_id').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.threadId] })],
+);
+
 // Stored credentials for a project's integrations. One store for every secret: the
 // API keys of LLM providers (kind 'llm', addressed by an internal agent's model) and
 // the credentials of tool integrations (kind 'tool', bound to configured tools).
@@ -630,6 +686,55 @@ export const integrationCredential = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('integration_credential_project_idx').on(t.projectId)],
+);
+
+export const gitProviderConnection = pgTable(
+  'git_provider_connection',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    baseUrl: text('base_url').notNull(),
+    accountLogin: text('account_login').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+    iv: text('iv').notNull(),
+    authTag: text('auth_tag').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('git_provider_connection_project_provider_url_account_unique').on(
+      t.projectId,
+      t.provider,
+      t.baseUrl,
+      t.accountLogin,
+    ),
+    index('git_provider_connection_project_idx').on(t.projectId),
+  ],
+);
+
+export const gitManagedRepository = pgTable(
+  'git_managed_repository',
+  {
+    id: serial('id').primaryKey(),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => gitProviderConnection.id, { onDelete: 'cascade' }),
+    externalId: text('external_id').notNull(),
+    fullName: text('full_name').notNull(),
+    webUrl: text('web_url').notNull(),
+    webhookExternalId: text('webhook_external_id').notNull(),
+    status: text('status').notNull().default('connected'),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('git_managed_repository_connection_external_unique').on(t.connectionId, t.externalId),
+    index('git_managed_repository_connection_idx').on(t.connectionId, t.fullName),
+  ],
 );
 
 // Per-project notification provider credentials: the outbound channels the project
@@ -912,6 +1017,45 @@ export const agentFieldTrigger = pgTable(
   ],
 );
 
+// A preset a new issue can be created from. It carries the title and description
+// the issue starts with plus the properties applied on top of it — every one of
+// them optional, and one left NULL leaves the create dialog on its own default.
+// The labels are in issue_template_label.
+export const issueTemplate = pgTable(
+  'issue_template',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    // What the template is for, shown under its name in the picker.
+    description: text('description').notNull().default(''),
+    // The title and body the issue starts with, both editable before it is created.
+    titleTemplate: text('title_template').notNull().default(''),
+    descriptionTemplate: text('description_template').notNull().default(''),
+    typeId: integer('type_id').references(() => issueType.id, { onDelete: 'set null' }),
+    columnId: integer('column_id').references(() => projectColumn.id, { onDelete: 'set null' }),
+    priority: text('priority'),
+    assigneeUserId: text('assignee_user_id').references(() => user.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [unique().on(t.projectId, t.name)],
+);
+
+export const issueTemplateLabel = pgTable(
+  'issue_template_label',
+  {
+    templateId: integer('template_id')
+      .notNull()
+      .references(() => issueTemplate.id, { onDelete: 'cascade' }),
+    labelId: integer('label_id')
+      .notNull()
+      .references(() => label.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.templateId, t.labelId] })],
+);
+
 // A strategic grouping of issues inside a project (project-scoped, not
 // cross-project). Issues point at it through issue.initiative_id. status is a
 // fixed lifecycle enum; health is not stored — it is computed on the fly from the
@@ -1067,6 +1211,9 @@ export const issue = pgTable(
     index('issue_project_active_idx')
       .on(t.projectId, t.columnId)
       .where(sql`${t.archivedAt} IS NULL`),
+    // Backs the import duplicate check: the titles a project already holds,
+    // archived ones included, normalised the way titleKey compares them.
+    index('issue_project_title_idx').on(t.projectId, sql`lower(btrim(${t.title}))`),
     // Backs reading a parent's subtasks, on the issue page and on every write that
     // has to know whether an issue has any.
     index('issue_parent_idx')
@@ -1278,6 +1425,108 @@ export const issueAttachment = pgTable(
   (t) => [index('issue_attachment_issue_idx').on(t.issueId)],
 );
 
+export const issueDevelopmentLink = pgTable(
+  'issue_development_link',
+  {
+    id: serial('id').primaryKey(),
+    issueId: integer('issue_id')
+      .notNull()
+      .references(() => issue.id, { onDelete: 'cascade' }),
+    provider: text('provider').notNull(),
+    repository: text('repository').notNull(),
+    kind: text('kind').notNull().default('pull_request'),
+    externalKey: text('external_key').notNull(),
+    number: integer('number'),
+    title: text('title').notNull(),
+    url: text('url'),
+    state: text('state').notNull(),
+    draft: boolean('draft').notNull().default(false),
+    sourceBranch: text('source_branch'),
+    targetBranch: text('target_branch').notNull(),
+    headSha: text('head_sha'),
+    pipelineStatus: text('pipeline_status'),
+    pipelineUrl: text('pipeline_url'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.issueId, t.provider, t.repository, t.externalKey),
+    index('issue_development_link_issue_idx').on(t.issueId, t.updatedAt.desc()),
+    index('issue_development_link_pr_idx').on(t.provider, t.repository, t.number),
+    index('issue_development_link_sha_idx').on(t.provider, t.repository, t.headSha),
+  ],
+);
+
+export const issueDevelopmentCheck = pgTable(
+  'issue_development_check',
+  {
+    id: serial('id').primaryKey(),
+    developmentLinkId: integer('development_link_id')
+      .notNull()
+      .references(() => issueDevelopmentLink.id, { onDelete: 'cascade' }),
+    externalId: text('external_id').notNull(),
+    appId: text('app_id').notNull(),
+    name: text('name').notNull(),
+    status: text('status').notNull(),
+    url: text('url'),
+    headSha: text('head_sha').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique().on(t.developmentLinkId, t.appId, t.name),
+    index('issue_development_check_link_sha_idx').on(t.developmentLinkId, t.headSha),
+  ],
+);
+
+// A file uploaded in an agent chat. Bytes live in the S3-compatible object store;
+// this table holds the metadata and the object key. public_id is the unguessable
+// id used in the public download URL. Kept free of any workflow state so an
+// upload can serve more than one purpose (an issue import, a spec, a log).
+export const chatAttachment = pgTable(
+  'chat_attachment',
+  {
+    id: serial('id').primaryKey(),
+    publicId: uuid('public_id').notNull().defaultRandom().unique(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    uploadedByUserId: text('uploaded_by_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    s3Key: text('s3_key').notNull(),
+    filename: text('filename').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('chat_attachment_project_idx').on(t.projectId)],
+);
+
+// An import of issues from a chat attachment: the column mapping an agent saved
+// and the state of the draft. The file itself is the referenced chat_attachment;
+// creating the issues happens only through the confirm route, never by the model
+// itself.
+export const issueImport = pgTable(
+  'issue_import',
+  {
+    id: serial('id').primaryKey(),
+    publicId: uuid('public_id').notNull().defaultRandom().unique(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    attachmentId: integer('attachment_id')
+      .notNull()
+      .references(() => chatAttachment.id, { onDelete: 'cascade' }),
+    // mapped: an agent saved a column mapping. confirmed: the issues were
+    // created. canceled and failed are terminal, with errorText on a failure.
+    status: text('status').notNull().default('mapped'),
+    mapping: jsonb('mapping'),
+    errorText: text('error_text'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('issue_import_project_idx').on(t.projectId)],
+);
+
 // Checklists on an issue: a lightweight list of steps that does not warrant a
 // subtask of its own. An issue holds several checklists, each ordered by position
 // among the issue's checklists.
@@ -1476,6 +1725,157 @@ export const projectDashboard = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('project_dashboard_project_idx').on(t.projectId, t.position)],
+);
+
+// Shared Markdown pages arranged as a tree. Version rejects stale autosaves.
+// Private pages are visible only to their owner; project permissions still gate
+// access before that page-level rule is applied.
+export const projectDocument = pgTable(
+  'project_document',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .notNull()
+      .references(() => project.id, { onDelete: 'cascade' }),
+    parentId: integer('parent_id').references((): AnyPgColumn => projectDocument.id, {
+      onDelete: 'set null',
+    }),
+    title: text('title').notNull().default(''),
+    content: text('content').notNull().default(''),
+    contentJson: jsonb('content_json').$type<Record<string, unknown>>(),
+    icon: text('icon'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    fullWidth: boolean('full_width').notNull().default(false),
+    isPrivate: boolean('is_private').notNull().default(false),
+    isLocked: boolean('is_locked').notNull().default(false),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    archivedByAncestorId: integer('archived_by_ancestor_id').references(
+      (): AnyPgColumn => projectDocument.id,
+      { onDelete: 'set null' },
+    ),
+    position: doublePrecision('position').notNull().default(0),
+    version: integer('version').notNull().default(1),
+    ownerUserId: text('owner_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    createdByUserId: text('created_by_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    updatedByUserId: text('updated_by_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('project_document_project_tree_idx').on(t.projectId, t.parentId, t.position, t.id),
+    index('project_document_owner_idx').on(t.ownerUserId),
+    index('project_document_project_archive_idx').on(t.projectId, t.archivedAt),
+    check('project_document_version_check', sql`${t.version} > 0`),
+  ],
+);
+
+// Immutable snapshots of every persisted document version. A database trigger
+// fills this table so project copies and bulk tree operations receive the same
+// history guarantees as writes made through the Documents API.
+export const projectDocumentRevision = pgTable(
+  'project_document_revision',
+  {
+    id: serial('id').primaryKey(),
+    documentId: integer('document_id')
+      .notNull()
+      .references(() => projectDocument.id, { onDelete: 'cascade' }),
+    version: integer('version').notNull(),
+    parentId: integer('parent_id'),
+    title: text('title').notNull(),
+    content: text('content').notNull(),
+    contentJson: jsonb('content_json').$type<Record<string, unknown>>(),
+    icon: text('icon'),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    fullWidth: boolean('full_width').notNull().default(false),
+    isPrivate: boolean('is_private').notNull().default(false),
+    isLocked: boolean('is_locked').notNull().default(false),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    position: doublePrecision('position').notNull(),
+    ownerUserId: text('owner_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    createdByUserId: text('created_by_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    unique('project_document_revision_document_version_unique').on(t.documentId, t.version),
+    index('project_document_revision_document_idx').on(t.documentId, t.version),
+  ],
+);
+
+// Per-user page preferences. Keeping favorites outside the shared page row means
+// one person's sidebar choices never affect another project member.
+export const projectDocumentPreference = pgTable(
+  'project_document_preference',
+  {
+    documentId: integer('document_id')
+      .notNull()
+      .references(() => projectDocument.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    isFavorite: boolean('is_favorite').notNull().default(false),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.documentId, t.userId] }),
+    index('project_document_preference_user_idx').on(t.userId),
+  ],
+);
+
+// Explicit links between Docs pages and work items. The relation is intentionally
+// separate from page content: renaming either side keeps the link intact, one page
+// can provide context for several work items, and one work item can collect several
+// specs or runbooks. The API verifies that both ends belong to the same project.
+export const projectDocumentIssue = pgTable(
+  'project_document_issue',
+  {
+    documentId: integer('document_id')
+      .notNull()
+      .references(() => projectDocument.id, { onDelete: 'cascade' }),
+    issueId: integer('issue_id')
+      .notNull()
+      .references(() => issue.id, { onDelete: 'cascade' }),
+    createdByUserId: text('created_by_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.documentId, t.issueId] }),
+    index('project_document_issue_issue_idx').on(t.issueId, t.documentId),
+  ],
+);
+
+// Files embedded in Docs pages. Bytes use the same S3-compatible object store as
+// issue/chat attachments; only authenticated document routes expose them, so a
+// private page's unguessable asset id never acts as a public capability URL.
+export const documentAsset = pgTable(
+  'document_asset',
+  {
+    id: serial('id').primaryKey(),
+    publicId: uuid('public_id').notNull().defaultRandom().unique(),
+    documentId: integer('document_id')
+      .notNull()
+      .references(() => projectDocument.id, { onDelete: 'cascade' }),
+    uploadedByUserId: text('uploaded_by_user_id').references(() => user.id, {
+      onDelete: 'set null',
+    }),
+    s3Key: text('s3_key').notNull(),
+    filename: text('filename').notNull(),
+    contentType: text('content_type').notNull(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('document_asset_document_idx').on(t.documentId, t.createdAt)],
 );
 
 // Note boards: a freeform canvas of sticky notes. canvas is a jsonb blob owned by

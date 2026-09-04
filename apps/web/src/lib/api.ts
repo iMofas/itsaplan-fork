@@ -118,6 +118,7 @@ export interface Project {
   // useProjectFeatures, which hides the navigation and the section itself.
   initiativesEnabled: boolean;
   dashboardsEnabled: boolean;
+  documentsEnabled: boolean;
   notesEnabled: boolean;
   cyclesEnabled: boolean;
   subtasksEnabled: boolean;
@@ -151,6 +152,7 @@ export type CopyProjectIncludeKey =
   | 'customFields'
   | 'views'
   | 'dashboards'
+  | 'documents'
   | 'actions'
   | 'configuration'
   | 'roles'
@@ -221,6 +223,9 @@ export interface Assignee {
   // The user an 'owner'-scoped agent works for: delegating it to anyone else queues a
   // run its runner never receives. Null for members and project-scoped agents.
   restrictedToUserId: string | null;
+  // Whether this person may read issues and can therefore receive watcher
+  // notifications without leaking work-item content.
+  canReadWorkItems: boolean;
 }
 
 // One member custom field an agent reacts to, with the seconds its run waits.
@@ -296,6 +301,9 @@ export interface AgentRun {
   attempts: number;
   lastError: string | null;
   output: string | null;
+  // What the last model call of the run read and wrote: absent for a run that finished
+  // before this was recorded and for one whose agent reports no counts.
+  contextTokens?: number;
   nextAttemptAt: string;
   createdAt: string;
 }
@@ -341,6 +349,9 @@ export interface AgentScheduleRun {
   attempts: number;
   lastError: string | null;
   output: string | null;
+  // What the last model call of the run read and wrote: absent for a run that finished
+  // before this was recorded and for one whose agent reports no counts.
+  contextTokens?: number;
   scheduledFor: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -538,10 +549,19 @@ export type AgentRunEvent =
 // prompt (truncated); null when it was never set. `cliSessionId` is the coding agent
 // session an external agent's runner keeps for the thread on its own machine — null
 // before the runner has reported one, and always null for an internal agent.
+// `contextTokens` is the size of the conversation's context after its last completed
+// answer: absent while no answer has completed, null where the agent reports no counts
+// that can be read as one.
+// `favorite` is the star the caller put on the conversation. `snippet` and `match` come
+// back from a search: the text around the hit, and where it was found.
 export interface AiChatThread {
   id: string;
   title: string | null;
   cliSessionId: string | null;
+  contextTokens?: number | null;
+  favorite: boolean;
+  snippet?: string;
+  match?: 'title' | 'user' | 'assistant';
   createdAt: string;
   updatedAt: string;
 }
@@ -631,6 +651,75 @@ async function* readSseFrames(res: Response): AsyncGenerator<{ id: number | null
       };
     }
   }
+}
+
+// --- Chat attachments: a file dropped in an agent chat, for an agent to read or
+// import issues from.
+
+export interface ChatAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+  url: string;
+}
+
+// The upload route takes the bytes as base64 rather than multipart, so the chat
+// composer and an MCP client call the same route.
+export async function uploadChatAttachment(
+  projectKey: string,
+  file: File,
+): Promise<ChatAttachment> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read the file'));
+    reader.readAsDataURL(file);
+  });
+  return request(`/projects/${projectKey}/chat-attachments`, {
+    method: 'POST',
+    body: JSON.stringify({
+      filename: file.name,
+      contentBase64: dataUrl.slice(dataUrl.indexOf(',') + 1),
+      contentType: file.type || undefined,
+    }),
+  });
+}
+
+// --- Issue imports: a chat attachment an agent mapped into issues, awaiting confirmation.
+
+export interface IssueImport {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  status: 'mapped' | 'confirmed' | 'canceled' | 'failed';
+  mapping: Record<string, string> | null;
+  errorText: string | null;
+  createdAt: string;
+  preview?: {
+    columns: { field: string; header: string }[];
+    rows: { cells: string[]; skip: string | null }[];
+    totalRows: number;
+  };
+}
+
+export interface ImportConfirmResult {
+  imported: { key: string; title: string }[];
+  skipped: { row: number; reason: string }[];
+}
+
+export async function getImport(importId: string): Promise<IssueImport> {
+  return request(`/imports/${importId}`);
+}
+
+export async function confirmImport(importId: string): Promise<ImportConfirmResult> {
+  return request(`/imports/${importId}/confirm`, { method: 'POST' });
+}
+
+export async function discardImport(importId: string): Promise<void> {
+  await request(`/imports/${importId}/cancel`, { method: 'POST' });
 }
 
 // What an external agent's runner reports while it answers, as AG-UI events
@@ -775,6 +864,22 @@ export interface CustomField {
   options: CustomFieldOption[];
 }
 
+// A preset a new issue can be created from: the title and description it starts
+// with plus the properties applied on top of them. A property left null presets
+// nothing — the create dialog keeps its own default for it.
+export interface IssueTemplate {
+  id: number;
+  name: string;
+  description: string;
+  titleTemplate: string;
+  descriptionTemplate: string;
+  typeId: number | null;
+  columnId: number | null;
+  priority: string | null;
+  assigneeUserId: string | null;
+  labelIds: number[];
+}
+
 // One custom field value on a project issue: the scalar value (null for
 // select/multi_select and unset fields), the end of a datetime_range, and the
 // selected option ids. Only fields with a value set appear; unset fields are
@@ -895,6 +1000,7 @@ export interface GitSettings {
   secret: string | null;
   onMergeColumnId: number | null;
   onOpenColumnId: number | null;
+  linkbackComments: boolean;
   repositories: GitRepository[];
 }
 
@@ -906,12 +1012,47 @@ export interface GitRepository {
   lastEventAt: string;
 }
 
+export type GitConnectionProvider = 'github' | 'gitlab' | 'gitea' | 'forgejo' | 'bitbucket';
+
+export interface GitManagedRepository {
+  id: number;
+  externalId: string;
+  fullName: string;
+  webUrl: string;
+  status: 'connected' | 'error';
+  lastError: string | null;
+}
+
+export interface GitProviderConnection {
+  id: number;
+  provider: GitConnectionProvider;
+  baseUrl: string;
+  accountLogin: string;
+  repositories: GitManagedRepository[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AvailableGitRepository {
+  externalId: string;
+  fullName: string;
+  webUrl: string;
+  private: boolean;
+  managedRepositoryId: number | null;
+}
+
+export interface AvailableGitRepositoryPage {
+  repositories: AvailableGitRepository[];
+  nextPage: number | null;
+}
+
 // Which optional sections a project shows. All on by default; turning one off
 // hides its navigation entry and its section, keeping the rows behind it.
 export interface ProjectFeatures {
   initiatives: boolean;
   cycles: boolean;
   dashboards: boolean;
+  documents: boolean;
   notes: boolean;
   subtasks: boolean;
   checklists: boolean;
@@ -977,6 +1118,10 @@ export interface NotificationSettingsPatch {
 
 // The instance upload limits. Readable by any signed-in user, because the upload UI
 // states them before a file is picked; only god mode can change them.
+export interface ProjectDefaults {
+  mcpEnabled: boolean;
+}
+
 export interface StorageSettings {
   maxAttachmentMb: number;
   maxAvatarMb: number;
@@ -1022,13 +1167,18 @@ export interface InstanceAuthSettings {
   registration: RegistrationMode;
   requireEmailVerification: boolean;
   magicLink: boolean;
+  emailPassword: boolean;
   hasEmailProvider: boolean;
+  // Whether Google or the OIDC provider can run. Password sign-in may only be turned
+  // off while one of them can.
+  hasSsoProvider: boolean;
 }
 
 export interface InstanceAuthSettingsPatch {
   registration?: RegistrationMode;
   requireEmailVerification?: boolean;
   magicLink?: boolean;
+  emailPassword?: boolean;
 }
 
 // The instance mail provider used for authentication email (password reset, address
@@ -1065,6 +1215,10 @@ export interface InstanceEmailSettingsPatch {
   allowProjects?: boolean;
 }
 
+export interface InstanceEmailTestResult {
+  recipient: string;
+}
+
 // The Google OAuth credentials used for social sign-in. The client secret is never
 // returned, only a `hasClientSecret` flag. redirectUri is derived from the API origin
 // and has to be registered in the Google Cloud console.
@@ -1079,6 +1233,57 @@ export interface InstanceGoogleSettingsPatch {
   enabled?: boolean;
   clientId?: string;
   clientSecret?: string;
+}
+
+// The instance's generic OIDC/OAuth2 provider. The client secret is never returned,
+// only a `hasClientSecret` flag. redirectUri is derived from the API origin and has
+// to be registered with the identity provider.
+export interface InstanceOidcSettings {
+  enabled: boolean;
+  label: string;
+  discoveryUrl: string;
+  clientId: string;
+  hasClientSecret: boolean;
+  scopes: string[];
+  pkce: boolean;
+  redirectUri: string;
+}
+
+export interface InstanceOidcSettingsPatch {
+  enabled?: boolean;
+  label?: string;
+  discoveryUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  scopes?: string[];
+  pkce?: boolean;
+}
+
+// SCIM provisioning. The token is never returned, only its prefix; a new one is
+// generated with createInstanceScimToken and shown once.
+export interface InstanceScimSettings {
+  enabled: boolean;
+  hasToken: boolean;
+  tokenPrefix: string;
+  baseUrl: string;
+}
+
+// What a provisioned group grants: membership in a project, at a role. The group and
+// its members come from the identity provider; the mappings are set here.
+export interface InstanceScimGroupMapping {
+  projectId: number;
+  projectKey: string;
+  projectName: string;
+  role: 'owner' | 'member';
+  roleId: number | null;
+}
+
+export interface InstanceScimGroup {
+  id: string;
+  displayName: string;
+  externalId: string | null;
+  memberCount: number;
+  mappings: InstanceScimGroupMapping[];
 }
 
 // The instance Telegram bot: the one bot users link their accounts through, and the
@@ -1180,6 +1385,9 @@ export interface InstanceProjectMember {
 
 export interface InstanceProjectDetail extends InstanceProject {
   members: InstanceProjectMember[];
+  // The custom roles a member of this project can be put on, for the SCIM group
+  // mapping form.
+  roles: { id: number; name: string; isDefault: boolean }[];
 }
 
 export interface InstanceProjectPage {
@@ -1195,7 +1403,14 @@ export interface PublicAuthConfig {
   magicLink: boolean;
   requireEmailVerification: boolean;
   emailEnabled: boolean;
+  // Whether the email/password form is offered at all. False only on an instance
+  // that has a working single sign-on provider.
+  emailPassword: boolean;
   google: boolean;
+  oidc: boolean;
+  // The sign-in button text the operator gave their identity provider. Empty when
+  // OIDC is not offered, or when they left it blank.
+  oidcLabel: string;
 }
 
 // The session member's own notification preferences for a project: which issue
@@ -1412,6 +1627,143 @@ export interface NoteBoardListParams {
   q?: string;
   limit?: number;
   offset?: number;
+}
+
+export interface ProjectDocumentSummary {
+  id: number;
+  projectId: number;
+  parentId: number | null;
+  title: string;
+  icon: string | null;
+  metadata: Record<string, unknown>;
+  fullWidth: boolean;
+  isPrivate: boolean;
+  isLocked: boolean;
+  isFavorite: boolean;
+  archivedAt: string | null;
+  position: number;
+  version: number;
+  ownerUserId: string | null;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectDocument extends ProjectDocumentSummary {
+  content: string;
+  contentJson: Record<string, unknown> | null;
+}
+
+export interface DocumentIssueLink {
+  issueId: number;
+  sequenceNumber: number;
+  identifier: string;
+  title: string;
+  archived: boolean;
+  createdAt: string;
+}
+
+export interface IssueDocumentLink {
+  documentId: number;
+  title: string;
+  icon: string | null;
+  isPrivate: boolean;
+  archived: boolean;
+  createdAt: string;
+}
+
+export interface NewProjectDocumentInput {
+  title?: string;
+  content?: string;
+  contentJson?: Record<string, unknown> | null;
+  icon?: string | null;
+  metadata?: Record<string, unknown>;
+  fullWidth?: boolean;
+  isPrivate?: boolean;
+  parentId?: number | null;
+}
+
+export interface ProjectDocumentPatch {
+  version: number;
+  title?: string;
+  content?: string;
+  contentJson?: Record<string, unknown> | null;
+  icon?: string | null;
+  metadata?: Record<string, unknown>;
+  fullWidth?: boolean;
+  parentId?: number | null;
+  position?: number;
+  previousSiblingId?: number | null;
+  nextSiblingId?: number | null;
+}
+
+export interface ProjectDocumentRevisionSummary {
+  id: number;
+  documentId: number;
+  version: number;
+  title: string;
+  createdByUserId: string | null;
+  createdAt: string;
+}
+
+export interface ProjectDocumentRevision extends ProjectDocumentRevisionSummary {
+  parentId: number | null;
+  content: string;
+  contentJson: Record<string, unknown> | null;
+  icon: string | null;
+  metadata: Record<string, unknown>;
+  fullWidth: boolean;
+  isPrivate: boolean;
+  isLocked: boolean;
+  archivedAt: string | null;
+  position: number;
+}
+
+export interface ProjectDocumentExport {
+  filename: string;
+  mimeType: 'text/markdown';
+  content: string;
+  version: number;
+  exportedAt: string;
+}
+
+export interface DocumentAsset {
+  id: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedByUserId: string | null;
+  createdAt: string;
+  url: string;
+}
+
+function withDocumentAssetUrl(asset: DocumentAsset): DocumentAsset {
+  const match = asset.url.match(
+    /^\/projects\/([^/]+)\/documents\/(\d+)\/assets\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\/raw$/i,
+  );
+  if (!match) throw new Error('The document asset URL returned by the API is invalid');
+  const [, encodedProjectKey, documentId, publicId] = match;
+  return {
+    ...asset,
+    url: `/protected-media/projects/${encodeURIComponent(decodeURIComponent(encodedProjectKey))}/documents/${documentId}/assets/${publicId}/raw`,
+  };
+}
+
+async function sendDocumentAssetFile(
+  projectKey: string,
+  documentId: number,
+  file: File,
+): Promise<DocumentAsset> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_URL}/projects/${projectKey}/documents/${documentId}/assets`, {
+    method: 'POST',
+    credentials: 'include',
+    body: form,
+  });
+  if (!res.ok) throw await apiFailure(res);
+  return withDocumentAssetUrl(await res.json());
 }
 
 // --- Analytics DTOs (project metrics behind the dashboard widgets) ---------------
@@ -1815,6 +2167,7 @@ export interface ProjectScaffold {
   // Every custom field of the project (all type scopes); consumers filter by
   // issueTypeId locally.
   customFields: CustomField[];
+  issueTemplates: IssueTemplate[];
   viewer: ProjectViewer;
   // The caller's resolved permission matrix (owners get every flag).
   permissions: Permissions;
@@ -1843,6 +2196,78 @@ export type ProjectDetail = ProjectScaffold & BoardIssues & { plannedCycles: Cyc
 
 export interface IssueDetail extends Issue {
   fields: IssueFieldValue[];
+}
+
+export type GitProvider = 'github' | 'gitlab' | 'gitea' | 'forgejo' | 'bitbucket';
+export type PullRequestState = 'open' | 'merged' | 'closed';
+export type PipelineStatus = 'pending' | 'running' | 'success' | 'failed' | 'canceled' | 'skipped';
+
+export interface DevelopmentCheck {
+  id: number;
+  name: string;
+  status: PipelineStatus;
+  url: string | null;
+  updatedAt: string;
+}
+
+export interface DevelopmentLink {
+  id: number;
+  provider: GitProvider;
+  repository: string;
+  kind: 'pull_request' | 'branch';
+  number: number | null;
+  title: string;
+  url: string | null;
+  state: PullRequestState;
+  draft: boolean;
+  sourceBranch: string | null;
+  targetBranch: string;
+  headSha: string | null;
+  pipelineStatus: PipelineStatus | null;
+  pipelineUrl: string | null;
+  checkStatus: PipelineStatus | null;
+  checks: DevelopmentCheck[];
+  updatedAt: string;
+}
+
+export interface DevelopmentRepository {
+  id: number;
+  provider: 'github' | 'gitlab';
+  fullName: string;
+  webUrl: string;
+}
+
+export interface LinkablePullRequest {
+  number: number;
+  title: string;
+  url: string | null;
+  state: PullRequestState;
+  draft: boolean;
+  sourceBranch: string | null;
+  targetBranch: string;
+  headSha: string | null;
+  updatedAt: string;
+  linked: boolean;
+}
+
+export interface LinkablePullRequestPage {
+  pullRequests: LinkablePullRequest[];
+  nextPage: number | null;
+}
+
+export interface DevelopmentBranchPage {
+  branches: string[];
+  defaultBranch: string | null;
+  nextPage: number | null;
+}
+
+export interface CreateIssuePullRequestInput {
+  repositoryId: number;
+  sourceBranch: string;
+  targetBranch: string;
+  title: string;
+  description: string;
+  draft: boolean;
 }
 
 // A relation between two issues (mirrors apps/api modules/issues/links.ts). 'blocks' and
@@ -1957,13 +2382,14 @@ export interface IssueRelations extends IssueDetail {
 export interface IssueWithWatchers extends IssueRelations {
   watchers: IssueWatcher[];
   checklists: Checklist[];
+  development: DevelopmentLink[];
 }
 
 // Public read-only share bundles, returned by the /share/* routes with no session.
 // The scaffold mirrors ProjectScaffold minus the caller's viewer/permissions and
 // member emails and handles (a public page shows names and avatars only).
 export type PublicScaffold = Omit<ProjectScaffold, 'viewer' | 'permissions' | 'assignees'> & {
-  assignees: Omit<Assignee, 'email' | 'username'>[];
+  assignees: Omit<Assignee, 'email' | 'username' | 'canReadWorkItems'>[];
 };
 
 export interface SharedIssueBundle {
@@ -2235,6 +2661,21 @@ export interface NewCustomFieldInput {
   options?: string[];
 }
 
+export interface NewIssueTemplateInput {
+  name: string;
+  description?: string;
+  titleTemplate?: string;
+  descriptionTemplate?: string;
+  typeId?: number | null;
+  columnId?: number | null;
+  priority?: string | null;
+  assigneeUserId?: string | null;
+  labelIds?: number[];
+}
+
+// A property left out keeps its value; `labelIds` replaces the whole label set.
+export type IssueTemplatePatch = Partial<NewIssueTemplateInput>;
+
 // The project permission matrix (mirrors apps/api shared/permissions.ts): each
 // resource grants or denies 4 actions. A custom role carries one matrix.
 export type PermissionAction = 'create' | 'edit' | 'read' | 'delete';
@@ -2244,6 +2685,7 @@ export type PermissionResource =
   | 'initiatives'
   | 'cycles'
   | 'dashboards'
+  | 'documents'
   | 'views'
   | 'members_invite'
   | 'members_manage'
@@ -2255,6 +2697,7 @@ export type PermissionResource =
   | 'agent_skills'
   | 'agent_tools'
   | 'custom_fields'
+  | 'issue_templates'
   | 'workflow_config'
   | 'actions'
   | 'webhooks'
@@ -2304,6 +2747,9 @@ export interface MemberRow {
   // True when this member is an AI agent's bot user. Its role and access are managed
   // on the AI Agents screen, so this list does not let you reassign or revoke it.
   isAgent: boolean;
+  // 'scim' when a provisioned group granted this membership. The sync rewrites such
+  // a row on every run, so the role and remove actions are refused for it.
+  source: 'invite' | 'scim';
   createdAt: string;
 }
 
@@ -2326,6 +2772,14 @@ export interface InviteRow {
   respondedAt: string | null;
   invitedByName: string | null;
   invitedByEmail: string | null;
+}
+
+export interface InviteCreateResult extends InviteRow {
+  emailQueued: boolean;
+}
+
+export interface InviteEmailResult {
+  emailQueued: boolean;
 }
 
 // An invite as shown to the invitee opening the link: enough project context to
@@ -2568,6 +3022,19 @@ export const api = {
   deleteCustomField: (projectKey: string, fieldId: number) =>
     request<void>(`/projects/${projectKey}/custom-fields/${fieldId}`, { method: 'DELETE' }),
 
+  createIssueTemplate: (projectKey: string, input: NewIssueTemplateInput) =>
+    request<IssueTemplate>(`/projects/${projectKey}/issue-templates`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateIssueTemplate: (projectKey: string, templateId: number, patch: IssueTemplatePatch) =>
+    request<IssueTemplate>(`/projects/${projectKey}/issue-templates/${templateId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteIssueTemplate: (projectKey: string, templateId: number) =>
+    request<void>(`/projects/${projectKey}/issue-templates/${templateId}`, { method: 'DELETE' }),
+
   createIssue: (projectKey: string, input: NewIssueInput) =>
     request<Issue>(`/projects/${projectKey}/issues`, {
       method: 'POST',
@@ -2601,6 +3068,34 @@ export const api = {
     request<IssueWithWatchers>(`/projects/${projectKey}/issues/${seq}`),
   updateIssue: (id: number, patch: IssuePatch) =>
     request<Issue>(`/issues/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  removeIssueDevelopmentLink: (issueId: number, linkId: number) =>
+    request<void>(`/issues/${issueId}/development/${linkId}`, { method: 'DELETE' }),
+  listIssueDevelopmentRepositories: (issueId: number) =>
+    request<DevelopmentRepository[]>(`/issues/${issueId}/development/repositories`),
+  listLinkablePullRequests: (
+    issueId: number,
+    repositoryId: number,
+    input: { state: 'open' | 'all'; page: number },
+  ) =>
+    request<LinkablePullRequestPage>(
+      `/issues/${issueId}/development/repositories/${repositoryId}/pull-requests?${new URLSearchParams(
+        { state: input.state, page: String(input.page) },
+      )}`,
+    ),
+  listDevelopmentBranches: (issueId: number, repositoryId: number, page: number) =>
+    request<DevelopmentBranchPage>(
+      `/issues/${issueId}/development/repositories/${repositoryId}/branches?page=${page}`,
+    ),
+  linkIssueDevelopment: (issueId: number, input: { repositoryId: number; number: number }) =>
+    request<DevelopmentLink>(`/issues/${issueId}/development`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  createIssuePullRequest: (issueId: number, input: CreateIssuePullRequestInput) =>
+    request<DevelopmentLink>(`/issues/${issueId}/development/pull-requests`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
   // An issue that has subtasks needs a disposition saying what happens to them;
   // without one the server rejects the delete with a 409.
   deleteIssue: (id: number, subtasks?: SubtaskDisposition) =>
@@ -2655,12 +3150,17 @@ export const api = {
   unlinkIssues: (issueId: number, linkId: number) =>
     request<void>(`/issues/${issueId}/links/${linkId}`, { method: 'DELETE' }),
 
-  // Following an issue, for the signed-in user only. Both return the resulting
-  // watcher list.
+  // Following an issue. The singular routes act on the signed-in user; the
+  // watcher routes let an editor curate other project members. Every route
+  // returns the resulting watcher list.
   watchIssue: (issueId: number) =>
     request<IssueWatcher[]>(`/issues/${issueId}/watch`, { method: 'POST' }),
   unwatchIssue: (issueId: number) =>
     request<IssueWatcher[]>(`/issues/${issueId}/watch`, { method: 'DELETE' }),
+  addIssueWatcher: (issueId: number, userId: string) =>
+    request<IssueWatcher[]>(`/issues/${issueId}/watchers/${userId}`, { method: 'PUT' }),
+  removeIssueWatcher: (issueId: number, userId: string) =>
+    request<IssueWatcher[]>(`/issues/${issueId}/watchers/${userId}`, { method: 'DELETE' }),
 
   setFieldValue: (issueId: number, fieldId: number, input: IssueFieldValueInput) =>
     request<{ ok: boolean }>(`/issues/${issueId}/fields/${fieldId}`, {
@@ -2887,6 +3387,112 @@ export const api = {
   deleteNoteBoard: (projectKey: string, boardId: number) =>
     request<void>(`/projects/${projectKey}/note-boards/${boardId}`, { method: 'DELETE' }),
 
+  listDocuments: (projectKey: string, q?: string, archived = false) => {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (archived) params.set('archived', 'true');
+    const suffix = params.size > 0 ? `?${params}` : '';
+    return request<ProjectDocumentSummary[]>(`/projects/${projectKey}/documents${suffix}`);
+  },
+  getDocument: (projectKey: string, documentId: number) =>
+    request<ProjectDocument>(`/projects/${projectKey}/documents/${documentId}`),
+  listDocumentIssueLinks: (projectKey: string, documentId: number) =>
+    request<DocumentIssueLink[]>(`/projects/${projectKey}/documents/${documentId}/issues`),
+  listIssueDocumentLinks: (projectKey: string, issueId: number) =>
+    request<IssueDocumentLink[]>(`/projects/${projectKey}/documents/for-issue/${issueId}`),
+  linkDocumentIssue: (projectKey: string, documentId: number, issueId: number) =>
+    request<DocumentIssueLink>(`/projects/${projectKey}/documents/${documentId}/issues`, {
+      method: 'POST',
+      body: JSON.stringify({ issueId }),
+    }),
+  unlinkDocumentIssue: (projectKey: string, documentId: number, issueId: number) =>
+    request<void>(`/projects/${projectKey}/documents/${documentId}/issues/${issueId}`, {
+      method: 'DELETE',
+    }),
+  createDocument: (projectKey: string, input: NewProjectDocumentInput) =>
+    request<ProjectDocument>(`/projects/${projectKey}/documents`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateDocument: (projectKey: string, documentId: number, patch: ProjectDocumentPatch) =>
+    request<ProjectDocument>(`/projects/${projectKey}/documents/${documentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteDocument: (projectKey: string, documentId: number, version: number) =>
+    request<void>(`/projects/${projectKey}/documents/${documentId}?version=${version}`, {
+      method: 'DELETE',
+    }),
+  setDocumentAccess: (
+    projectKey: string,
+    documentId: number,
+    input: { version: number; isPrivate: boolean },
+  ) =>
+    request<ProjectDocument>(`/projects/${projectKey}/documents/${documentId}/access`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  setDocumentLocked: (projectKey: string, documentId: number, version: number, locked: boolean) =>
+    request<ProjectDocument>(
+      `/projects/${projectKey}/documents/${documentId}/${locked ? 'lock' : 'unlock'}`,
+      { method: 'POST', body: JSON.stringify({ version }) },
+    ),
+  archiveDocument: (projectKey: string, documentId: number, version: number) =>
+    request<ProjectDocument>(`/projects/${projectKey}/documents/${documentId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ version }),
+    }),
+  restoreDocument: (projectKey: string, documentId: number, version: number) =>
+    request<ProjectDocument>(`/projects/${projectKey}/documents/${documentId}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ version }),
+    }),
+  duplicateDocument: (
+    projectKey: string,
+    documentId: number,
+    input: { version: number; title?: string; parentId?: number | null },
+  ) =>
+    request<ProjectDocument>(`/projects/${projectKey}/documents/${documentId}/duplicate`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  setDocumentFavorite: (projectKey: string, documentId: number, isFavorite: boolean) =>
+    request<{ isFavorite: boolean }>(
+      `/projects/${projectKey}/documents/${documentId}/preferences`,
+      { method: 'PATCH', body: JSON.stringify({ isFavorite }) },
+    ),
+  listDocumentRevisions: (projectKey: string, documentId: number) =>
+    request<ProjectDocumentRevisionSummary[]>(
+      `/projects/${projectKey}/documents/${documentId}/revisions`,
+    ),
+  getDocumentRevision: (projectKey: string, documentId: number, revisionId: number) =>
+    request<ProjectDocumentRevision>(
+      `/projects/${projectKey}/documents/${documentId}/revisions/${revisionId}`,
+    ),
+  restoreDocumentRevision: (
+    projectKey: string,
+    documentId: number,
+    revisionId: number,
+    version: number,
+  ) =>
+    request<ProjectDocument>(
+      `/projects/${projectKey}/documents/${documentId}/revisions/${revisionId}/restore`,
+      { method: 'POST', body: JSON.stringify({ version }) },
+    ),
+  exportDocument: (projectKey: string, documentId: number) =>
+    request<ProjectDocumentExport>(`/projects/${projectKey}/documents/${documentId}/export`),
+  listDocumentAssets: (projectKey: string, documentId: number) =>
+    request<DocumentAsset[]>(`/projects/${projectKey}/documents/${documentId}/assets`).then(
+      (assets) => assets.map(withDocumentAssetUrl),
+    ),
+  uploadDocumentAsset: (projectKey: string, documentId: number, file: File) =>
+    sendDocumentAssetFile(projectKey, documentId, file),
+  deleteDocumentAsset: (projectKey: string, documentId: number, publicId: string) =>
+    request<void>(
+      `/projects/${projectKey}/documents/${documentId}/assets/${encodeURIComponent(publicId)}`,
+      { method: 'DELETE' },
+    ),
+
   // Analytics — read-only project metrics behind the dashboard widgets.
   getStats: (projectKey: string) =>
     request<AnalyticsStats>(`/projects/${projectKey}/analytics/stats`),
@@ -3015,9 +3621,29 @@ export const api = {
       `/projects/${projectKey}/agent-schedules/${scheduleId}/runs${runId != null ? `/${runId}` : ''}/cancel`,
       { method: 'POST' },
     ),
-  // One page of the caller's own chat threads with an agent, newest first.
-  listAiAgentThreads: (projectKey: string, agentId: number, page: number) =>
-    request<AiChatThreadPage>(`/projects/${projectKey}/ai-agents/${agentId}/threads?page=${page}`),
+  // One page of the caller's own chat threads with an agent, newest first. `q` searches
+  // them by title and message text instead, over every page.
+  listAiAgentThreads: (projectKey: string, agentId: number, page: number, q = '') =>
+    request<AiChatThreadPage>(
+      `/projects/${projectKey}/ai-agents/${agentId}/threads?page=${page}` +
+        (q ? `&q=${encodeURIComponent(q)}` : ''),
+    ),
+  // The conversations the caller starred with an agent, newest first, in one go.
+  listAiAgentFavoriteThreads: (projectKey: string, agentId: number) =>
+    request<AiChatThreadPage>(
+      `/projects/${projectKey}/ai-agents/${agentId}/threads?favorites=true`,
+    ),
+  // Stars one of the caller's conversations, or takes the star off it.
+  setAiAgentThreadFavorite: (
+    projectKey: string,
+    agentId: number,
+    threadId: string,
+    favorite: boolean,
+  ) =>
+    request<void>(
+      `/projects/${projectKey}/ai-agents/${agentId}/threads/${encodeURIComponent(threadId)}/favorite`,
+      { method: favorite ? 'PUT' : 'DELETE' },
+    ),
   // The transcript of one chat thread, to restore the conversation.
   getAiAgentThreadMessages: (projectKey: string, agentId: number, threadId: string, page: number) =>
     request<AiChatMessagePage>(
@@ -3167,15 +3793,19 @@ export const api = {
   deleteRole: (projectKey: string, roleId: number) =>
     request<void>(`/projects/${projectKey}/roles/${roleId}`, { method: 'DELETE' }),
 
-  // Invites — owner side: create, list, and revoke a project's invite links.
+  // Invites — owner side: create, list, email, and revoke a project's invite links.
   listInvites: (projectKey: string) => request<InviteRow[]>(`/projects/${projectKey}/invites`),
   createInvite: (
     projectKey: string,
     input: { email: string; role: MemberRole; roleId?: number | null },
   ) =>
-    request<InviteRow>(`/projects/${projectKey}/invites`, {
+    request<InviteCreateResult>(`/projects/${projectKey}/invites`, {
       method: 'POST',
       body: JSON.stringify(input),
+    }),
+  sendInviteEmail: (projectKey: string, inviteId: number) =>
+    request<InviteEmailResult>(`/projects/${projectKey}/invites/${inviteId}/email`, {
+      method: 'POST',
     }),
   deleteInvite: (projectKey: string, inviteId: number) =>
     request<void>(`/projects/${projectKey}/invites/${inviteId}`, { method: 'DELETE' }),
@@ -3265,7 +3895,12 @@ export const api = {
     request<GitSettings>(`/projects/${projectKey}/settings/git`),
   updateGitSettings: (
     projectKey: string,
-    patch: { enabled?: boolean; onMergeColumnId?: number | null; onOpenColumnId?: number | null },
+    patch: {
+      enabled?: boolean;
+      onMergeColumnId?: number | null;
+      onOpenColumnId?: number | null;
+      linkbackComments?: boolean;
+    },
   ) =>
     request<GitSettings>(`/projects/${projectKey}/settings/git`, {
       method: 'PATCH',
@@ -3275,6 +3910,42 @@ export const api = {
     request<GitSettings>(`/projects/${projectKey}/settings/git/secret`, {
       method: 'POST',
     }),
+  listGitProviderConnections: (projectKey: string) =>
+    request<GitProviderConnection[]>(`/projects/${projectKey}/settings/git/connections`),
+  connectGitProvider: (
+    projectKey: string,
+    input: { provider: GitConnectionProvider; baseUrl?: string; token: string },
+  ) =>
+    request<GitProviderConnection>(`/projects/${projectKey}/settings/git/connections`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  disconnectGitProvider: (projectKey: string, connectionId: number) =>
+    request<void>(`/projects/${projectKey}/settings/git/connections/${connectionId}`, {
+      method: 'DELETE',
+    }),
+  listAvailableGitRepositories: (
+    projectKey: string,
+    connectionId: number,
+    params: { page?: number; search?: string },
+  ) => {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.search) query.set('search', params.search);
+    return request<AvailableGitRepositoryPage>(
+      `/projects/${projectKey}/settings/git/connections/${connectionId}/repositories?${query}`,
+    );
+  },
+  connectGitRepositories: (projectKey: string, connectionId: number, externalIds: string[]) =>
+    request<GitProviderConnection>(
+      `/projects/${projectKey}/settings/git/connections/${connectionId}/repositories`,
+      { method: 'POST', body: JSON.stringify({ externalIds }) },
+    ),
+  disconnectGitRepository: (projectKey: string, connectionId: number, repositoryId: number) =>
+    request<void>(
+      `/projects/${projectKey}/settings/git/connections/${connectionId}/repositories/${repositoryId}`,
+      { method: 'DELETE' },
+    ),
 
   // Notification provider credentials (danger_zone: read to view, edit to change).
   getNotificationSettings: (projectKey: string) =>
@@ -3371,6 +4042,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(patch),
     }),
+  testInstanceEmailSettings: (patch: InstanceEmailSettingsPatch) =>
+    request<InstanceEmailTestResult>('/god/email-settings/test', {
+      method: 'POST',
+      body: JSON.stringify(patch),
+    }),
   getInstanceTelegramSettings: () => request<InstanceTelegramSettings>('/god/telegram-settings'),
   updateInstanceTelegramSettings: (patch: InstanceTelegramSettingsPatch) =>
     request<InstanceTelegramSettings>('/god/telegram-settings', {
@@ -3400,6 +4076,13 @@ export const api = {
   getUpdateStatus: () => request<UpdateStatus>('/god/updates'),
   checkForUpdates: () => request<UpdateStatus>('/god/updates/check', { method: 'POST' }),
 
+  getInstanceProjectDefaults: () => request<ProjectDefaults>('/god/project-defaults'),
+  updateInstanceProjectDefaults: (body: ProjectDefaults) =>
+    request<ProjectDefaults>('/god/project-defaults', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
   getInstanceStorageSettings: () => request<StorageSettings>('/god/storage-settings'),
   updateInstanceStorageSettings: (patch: StorageSettingsPatch) =>
     request<StorageSettings>('/god/storage-settings', {
@@ -3413,6 +4096,33 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(patch),
     }),
+  getInstanceOidcSettings: () => request<InstanceOidcSettings>('/god/oidc-settings'),
+  updateInstanceOidcSettings: (patch: InstanceOidcSettingsPatch) =>
+    request<InstanceOidcSettings>('/god/oidc-settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+
+  getInstanceScimSettings: () => request<InstanceScimSettings>('/god/scim-settings'),
+  updateInstanceScimSettings: (patch: { enabled: boolean }) =>
+    request<InstanceScimSettings>('/god/scim-settings', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+  // Returns the new token in the clear. It is shown once and cannot be read back.
+  createInstanceScimToken: () =>
+    request<{ token: string }>('/god/scim-settings/token', { method: 'POST' }),
+
+  listInstanceScimGroups: () => request<InstanceScimGroup[]>('/god/scim-groups'),
+  setInstanceScimGroupMappings: (
+    groupId: string,
+    mappings: { projectId: number; role: 'owner' | 'member'; roleId: number | null }[],
+  ) =>
+    request<InstanceScimGroup>(`/god/scim-groups/${groupId}/mappings`, {
+      method: 'PUT',
+      body: JSON.stringify({ mappings }),
+    }),
+
   // The instance user directory: one page of accounts, and one account with the
   // projects it can reach. Search, the kind filter and paging all run on the server.
   listInstanceUsers: (params: {

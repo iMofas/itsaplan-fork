@@ -19,6 +19,9 @@ export const qk = {
   subtaskAutomation: (projectKey: string) => ['subtaskAutomation', projectKey] as const,
   // The project's repository integration settings (the Repositories settings section).
   gitSettings: (projectKey: string) => ['gitSettings', projectKey] as const,
+  gitConnections: (projectKey: string) => ['gitConnections', projectKey] as const,
+  gitAvailableRepositories: (projectKey: string, connectionId: number, search: string) =>
+    ['gitConnections', projectKey, connectionId, 'repositories', search] as const,
   // A project's notification delivery settings (the Notifications section).
   notificationSettings: (projectKey: string) => ['notificationSettings', projectKey] as const,
   notificationPreferences: (projectKey: string) => ['notificationPreferences', projectKey] as const,
@@ -30,6 +33,19 @@ export const qk = {
   // widgets. `kind` names the metric (stats/pulse/throughput/breakdown/...) and
   // `params` scopes it to the widget's query (window, filters).
   dashboards: (projectKey: string) => ['dashboards', projectKey] as const,
+  documents: (projectKey: string, q = '', archived = false) =>
+    ['documents', projectKey, 'list', archived ? 'archived' : 'active', q] as const,
+  documentListsForProject: (projectKey: string) => ['documents', projectKey, 'list'] as const,
+  document: (projectKey: string, documentId: number) =>
+    ['documents', projectKey, 'document', documentId] as const,
+  documentRevisions: (projectKey: string, documentId: number) =>
+    ['documents', projectKey, 'document', documentId, 'revisions'] as const,
+  documentAssets: (projectKey: string, documentId: number) =>
+    ['documents', projectKey, 'document', documentId, 'assets'] as const,
+  documentIssueLinks: (projectKey: string, documentId: number) =>
+    ['documents', projectKey, 'document', documentId, 'issues'] as const,
+  issueDocumentLinks: (projectKey: string, issueId: number) =>
+    ['documents', projectKey, 'issue', issueId] as const,
   // Note boards (the notes canvases). `noteBoardsForProject` is the invalidation
   // base for every list/search variant; `noteBoardsSearch` is one paged switcher
   // query (scoped by search text); `noteBoard` is a single board with its canvas.
@@ -63,9 +79,16 @@ export const qk = {
   agentScheduleRuns: (projectKey: string, scheduleId: number) =>
     ['agentSchedules', projectKey, scheduleId, 'runs'] as const,
   // The caller's chat threads with one agent (the AI Chat history rail) and the
-  // transcript of one thread (restored when a thread is opened).
-  agentThreads: (projectKey: string, agentId: number) =>
-    ['aiAgents', projectKey, agentId, 'threads'] as const,
+  // transcript of one thread (restored when a thread is opened). A search is a list of
+  // its own, so the unsearched list stays cached while one is typed.
+  agentThreadLists: (projectKey: string, agentId: number) =>
+    ['aiAgents', projectKey, agentId, 'threadList'] as const,
+  agentThreads: (projectKey: string, agentId: number, q = '') =>
+    ['aiAgents', projectKey, agentId, 'threadList', q] as const,
+  // The conversations starred with one agent: the group on top of the history, and what
+  // the star in the tabs bar reads its state from.
+  agentFavoriteThreads: (projectKey: string, agentId: number) =>
+    ['aiAgents', projectKey, agentId, 'favoriteThreads'] as const,
   agentThreadMessages: (projectKey: string, agentId: number, threadId: string) =>
     ['aiAgents', projectKey, agentId, 'threads', threadId] as const,
   // Stored integration credentials, the integration catalog, and an LLM provider's
@@ -86,6 +109,12 @@ export const qk = {
   agentToolLinks: (projectKey: string, agentId: number) =>
     ['aiAgents', projectKey, agentId, 'tool-configs'] as const,
   issue: (id: number) => ['issue', id] as const,
+  issueDevelopmentRepositories: (id: number) =>
+    ['issue', id, 'development', 'repositories'] as const,
+  issueDevelopmentPullRequests: (id: number, repositoryId: number, state: 'open' | 'all') =>
+    ['issue', id, 'development', 'repositories', repositoryId, 'pullRequests', state] as const,
+  issueDevelopmentBranches: (id: number, repositoryId: number) =>
+    ['issue', id, 'development', 'repositories', repositoryId, 'branches'] as const,
   // Under the issue prefix, so every issue mutation refreshes the cycles with it.
   issueCycles: (id: number) => ['issue', id, 'cycles'] as const,
   anyIssue: ['issue'] as const,
@@ -150,11 +179,15 @@ export const qk = {
   // start page). Read app-wide, not just on the preferences page.
   accountPreferences: ['accountPreferences'] as const,
   // Instance administration (god mode): the sign-in policy, the mail provider, the
-  // Google credentials and the Telegram bot. Not scoped to a project.
+  // sign-in providers, SCIM provisioning and the Telegram bot. Not scoped to a project.
   instanceAuthSettings: ['instanceAuthSettings'] as const,
   instanceEmailSettings: ['instanceEmailSettings'] as const,
   instanceGoogleSettings: ['instanceGoogleSettings'] as const,
+  instanceOidcSettings: ['instanceOidcSettings'] as const,
+  instanceScimSettings: ['instanceScimSettings'] as const,
+  instanceScimGroups: ['instanceScimGroups'] as const,
   instanceTelegramSettings: ['instanceTelegramSettings'] as const,
+  instanceProjectDefaults: ['instanceProjectDefaults'] as const,
   instanceStorageSettings: ['instanceStorageSettings'] as const,
   // The upload limits as read by the upload UI (open to any signed-in user).
   storageSettings: ['storageSettings'] as const,
