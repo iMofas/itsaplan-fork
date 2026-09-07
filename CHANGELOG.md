@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.1](https://github.com/iMofas/itsaplan-fork/compare/v0.17.0...v0.17.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **web:** stop the redirect loop on a stale session cookie ([#319](https://github.com/iMofas/itsaplan-fork/issues/319)) ([2e392a3](https://github.com/iMofas/itsaplan-fork/commit/2e392a3f4c769a7e766358f55ce9e67a6e51a249))
+
 ## [0.17.0](https://github.com/croffasia/itsaplan/compare/v0.16.0...v0.17.0) (2026-09-06)
 
 
