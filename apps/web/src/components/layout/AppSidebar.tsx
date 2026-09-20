@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Braces, Server, Shield } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import type { Project } from '@/lib/api';
+import type { Project } from '@/lib/api/endpoints/projects';
 import { useSession } from '@/lib/auth-client';
 import { apiDocsPath, godPath, mcpServerPath } from '@/utils/paths';
 import { GOD_SECTIONS } from '@/utils/godSections';
@@ -28,18 +28,16 @@ import SidebarBrandFooter from '@/components/brand/SidebarBrandFooter';
 // The app sidebar. It has two modes driven by the route: the main work
 // navigation, and the project settings navigation reached through the "Project
 // settings" entry. The project switcher header and the footer (API docs, MCP
-// server, brand mark) are shared by both modes. Project deletion lives on the
-// standalone Manage projects page, not here.
+// server, brand mark) are shared by both modes. Creating and deleting a project
+// live in the team panel on Manage teams, not here.
 export default function AppSidebar({
   projects,
   currentProjectKey,
   onSelectProject,
-  onNewProject,
 }: {
   projects: Project[];
   currentProjectKey: string | null;
   onSelectProject: (key: string) => void;
-  onNewProject: () => void;
 }) {
   const t = useTranslations('nav');
   const pathname = usePathname();
@@ -71,7 +69,6 @@ export default function AppSidebar({
           projects={projects}
           currentProjectKey={currentProjectKey}
           onSelectProject={onSelectProject}
-          onNewProject={onNewProject}
         />
       </SidebarHeader>
 

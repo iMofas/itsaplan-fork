@@ -2,6 +2,7 @@ import {
   db,
   issue,
   projectColumn,
+  projectMember,
   issueActivity,
   issueType,
   user,
@@ -269,6 +270,7 @@ export async function getPulse(
   projectId: number,
   unit: PulseUnit,
   columns: number,
+  actorUserId?: string,
 ): Promise<PulseBucket[]> {
   const u = PULSE_UNIT[unit];
   // Both branches yield exactly columns*rows buckets. Aligned: start at the super
@@ -283,17 +285,19 @@ export async function getPulse(
         start: `date_trunc('${u.trunc}', now()) - make_interval(${u.baseField} => ${columns * u.rows - 1})`,
         end: `date_trunc('${u.trunc}', now())`,
       };
-  const q = `
+  const q = sql`${sql.raw(`
     SELECT to_char(s.bucket, '${u.fmt}') AS label,
            COALESCE(count(a.id), 0)::int AS count
     FROM generate_series(${range.start}, ${range.end}, interval '1 ${u.trunc}') AS s(bucket)
     LEFT JOIN issue_activity a
       ON date_trunc('${u.trunc}', a.created_at) = s.bucket
       AND a.issue_id IN (SELECT id FROM issue WHERE project_id = ${projectId})
+  `)}
+    ${actorUserId == null ? sql`` : sql`AND a.actor_user_id = ${actorUserId}`}
     GROUP BY s.bucket
     ORDER BY s.bucket
   `;
-  const rows = (await db.execute(sql.raw(q))) as unknown as { label: string; count: number }[];
+  const rows = (await db.execute(q)) as unknown as { label: string; count: number }[];
   return rows.map((r) => ({ label: r.label, count: Number(r.count) }));
 }
 
@@ -444,15 +448,15 @@ export interface AgentRunFeedItem {
   createdAt: string;
 }
 
-// The project's agent runs, newest first, optionally narrowed to one status. Joins
-// agent_run through ai_agent (which carries the project scope and the agent name)
-// and issue when the run is issue-triggered.
+// The project's agent runs, newest first, optionally narrowed to one status. A run
+// carries the project it worked in; ai_agent is joined for the agent name and issue
+// when the run is issue-triggered.
 export async function listAgentRunFeed(
   projectId: number,
   opts: { status?: string | null; limit?: number } = {},
 ): Promise<AgentRunFeedItem[]> {
   const limit = Math.min(Math.max(opts.limit ?? 20, 1), 50);
-  const conds = [eq(aiAgent.projectId, projectId)];
+  const conds = [eq(agentRun.projectId, projectId)];
   if (opts.status) conds.push(eq(agentRun.status, opts.status));
 
   const rows = await db
@@ -502,10 +506,9 @@ export async function getAgentRunStats(projectId: number, days: number): Promise
   const rows = await db
     .select({ status: agentRun.status, count: sql<number>`count(*)::int` })
     .from(agentRun)
-    .innerJoin(aiAgent, eq(aiAgent.id, agentRun.agentId))
     .where(
       and(
-        eq(aiAgent.projectId, projectId),
+        eq(agentRun.projectId, projectId),
         sql`${agentRun.createdAt} >= now() - make_interval(days => ${days})`,
       ),
     )
@@ -594,7 +597,10 @@ export async function getAgentWorkload(projectId: number): Promise<AgentWorkload
   const agents = await db
     .select({ id: aiAgent.id, userId: aiAgent.userId, name: aiAgent.username, kind: aiAgent.kind })
     .from(aiAgent)
-    .where(eq(aiAgent.projectId, projectId));
+    .innerJoin(
+      projectMember,
+      and(eq(projectMember.userId, aiAgent.userId), eq(projectMember.projectId, projectId)),
+    );
   if (agents.length === 0) return [];
 
   const delegatedRows = await db
@@ -613,8 +619,7 @@ export async function getAgentWorkload(projectId: number): Promise<AgentWorkload
       failed: sql<number>`(count(*) filter (where ${agentRun.status} = 'failed'))::int`,
     })
     .from(agentRun)
-    .innerJoin(aiAgent, eq(aiAgent.id, agentRun.agentId))
-    .where(eq(aiAgent.projectId, projectId))
+    .where(eq(agentRun.projectId, projectId))
     .groupBy(agentRun.agentId);
   const runsByAgent = new Map(runRows.map((r) => [r.agentId, r]));
 

@@ -8,8 +8,8 @@ import type { AgentRunTrigger } from '../../model';
 // (runModePreamble) and the people involved (peopleContext). The interactive test
 // chat does not use this path — it frames its own prompt in the controller.
 
-// The fields of a claimed run this module reads. The HTTP body in internal-routes.ts
-// is structurally compatible.
+// The fields of a claimed run this module reads, as both the queue poller and the
+// external runner build them.
 export interface RunForPrompt {
   id: number;
   trigger: AgentRunTrigger;
@@ -18,19 +18,18 @@ export interface RunForPrompt {
   issueIdentifier: string | null;
   issueTitle: string | null;
   // The issue's assignee and, on a mention run, the author of the comment behind it:
-  // the name they are called by and the handle they are tagged by. The handles are
-  // optional so a worker still running the previous build can hand a run over.
+  // the name they are called by and the handle they are tagged by.
   assigneeName: string | null;
-  assigneeUsername?: string | null;
+  assigneeUsername: string | null;
   requesterName: string | null;
-  requesterUsername?: string | null;
+  requesterUsername: string | null;
   agentUserId: string;
-  agentUsername?: string | null;
-  // The comment the mention replies to and the ones above it, oldest first. Absent
-  // for a top-level mention.
-  threadContext?: string | null;
+  agentUsername: string | null;
+  // The comment the mention replies to and the ones above it, oldest first. Null for
+  // a top-level mention.
+  threadContext: string | null;
   // The comment that mentioned the agent, so it can answer in the same thread.
-  sourceActivityId?: number | null;
+  sourceActivityId: number | null;
 }
 
 // System-instruction block describing how this run was started, so the agent knows
@@ -142,6 +141,36 @@ export function projectPreamble(project: {
     `work-item tools act on this project only, and its issues are addressed by keys`,
     `like ${project.key}-123.`,
     ...(description ? ['', description] : []),
+    '',
+    '',
+  ].join('\n');
+}
+
+// The projects an agent works in, for a path with no single one of its own: a chat is
+// held with the agent, not inside a project, so it names every project the agent
+// reaches and the key each is addressed by.
+export function projectsPreamble(
+  projects: { key: string; name: string; description: string }[],
+): string {
+  if (projects.length === 0) {
+    return [
+      '## Projects',
+      'You work in no project yet. Your work-item tools reach nothing until someone',
+      'attaches you to one.',
+      '',
+      '',
+    ].join('\n');
+  }
+  if (projects.length === 1) return projectPreamble(projects[0]);
+  return [
+    '## Projects',
+    'You work in these projects. A work-item tool takes the key of the one to act in,',
+    'and its issues are addressed by keys like KEY-123.',
+    '',
+    ...projects.map((p) => {
+      const description = p.description.trim().slice(0, PROJECT_DESCRIPTION_LIMIT);
+      return `- ${p.key} — "${p.name}"${description ? `: ${description}` : ''}`;
+    }),
     '',
     '',
   ].join('\n');

@@ -1,4 +1,5 @@
 import { t } from 'elysia';
+import { PROJECT_FEATURES } from '#shared/features';
 import { ColumnResponse } from '#modules/columns/model';
 import { CustomFieldResponse } from '#modules/custom-fields/model';
 import { IssueTemplateResponse } from '#modules/issue-templates/model';
@@ -51,7 +52,39 @@ export const updateProjectBody = t.Object({
   description: t.Optional(t.String({ maxLength: PROJECT_DESCRIPTION_LIMIT })),
 });
 
+export const ProjectPreferencesResponse = t.Object({
+  isFavorite: t.Boolean(),
+  isHidden: t.Boolean(),
+});
+
+export const updateProjectPreferencesBody = t.Object(
+  {
+    isFavorite: t.Optional(t.Boolean()),
+    isHidden: t.Optional(t.Boolean()),
+  },
+  { minProperties: 1 },
+);
+
 export const listProjectsQuery = t.Object({
+  q: t.Optional(
+    t.String({
+      description: 'Case-insensitive literal substring of the project key, name, or description.',
+    }),
+  ),
+  sort: t.Optional(
+    t.UnionEnum(['key', 'name', 'created', 'activity'], {
+      description:
+        'Sort by key (default), name, newest creation, or newest work-item activity/comment. ' +
+        'Activity puts projects without activity last. Ties are ordered by key.',
+    }),
+  ),
+  teamId: t.Optional(
+    t.Numeric({
+      minimum: 1,
+      multipleOf: 1,
+      description: 'Limit results to projects in this team that you belong to.',
+    }),
+  ),
   permissions: t.Optional(
     t.String({ description: "'true' to include the caller's permission matrix per project." }),
   ),
@@ -60,10 +93,13 @@ export const listProjectsQuery = t.Object({
 // A project DTO (ProjectRow from the service).
 export const ProjectResponse = t.Object({
   id: t.Number(),
+  teamId: t.Number(),
+  teamName: t.String(),
   key: t.String(),
   name: t.String(),
   description: t.String(),
   mcpEnabled: t.Boolean(),
+  teamMcpEnabled: t.Boolean(),
   // The optional sections, toggled in Settings -> General. All on by default; a
   // disabled section is hidden in the web app and its rows are kept.
   initiativesEnabled: t.Boolean(),
@@ -77,6 +113,7 @@ export const ProjectResponse = t.Object({
   pointsEstimateEnabled: t.Boolean(),
   timeEstimateEnabled: t.Boolean(),
   timeLoggingEnabled: t.Boolean(),
+  availableFeatures: t.Array(t.UnionEnum([...PROJECT_FEATURES])),
   createdAt: t.String(),
 });
 
@@ -88,6 +125,15 @@ export const ProjectListResponse = t.Array(
     ProjectResponse,
     t.Object({
       role: t.Union([t.Literal('owner'), t.Literal('member')]),
+      lastActivityAt: t.Nullable(
+        t.String({
+          description: 'Newest readable work-item activity or comment timestamp, or null.',
+        }),
+      ),
+      isFavorite: t.Boolean({ description: 'Whether you starred this project.' }),
+      isHidden: t.Boolean({
+        description: 'Whether you hid this project in your navigation. Does not restrict access.',
+      }),
       permissions: t.Optional(PermissionMatrixSchema),
     }),
   ]),
@@ -111,6 +157,13 @@ const AssigneeCandidateResponse = t.Object({
 // resolved permission matrix is a sibling `permissions` key on the board payload.
 const ViewerResponse = t.Object({
   role: t.Union([t.Literal('owner'), t.Literal('member')]),
+  // The caller's standing in the team that owns the project, null when they are not
+  // a member of it. An owner or manager of the team governs the project's settings
+  // alongside the project's own owner; 'agent' is a bot user reading its own board,
+  // which governs nothing.
+  teamRole: t.Nullable(
+    t.Union([t.Literal('owner'), t.Literal('manager'), t.Literal('member'), t.Literal('agent')]),
+  ),
 });
 
 // The project board scaffold (GET /projects/:projectKey): the project plus its
@@ -143,14 +196,15 @@ const FeaturesResponse = t.Object({
   issueStats: t.Boolean(),
 });
 
-// The project's settings: MCP reachability and the enabled sections.
+// The project's settings: MCP reachability and the enabled sections. Reachability is
+// read-only here — both flags behind it are set from the team's MCP settings.
 export const ProjectSettingsResponse = t.Object({
-  mcpEnabled: t.Boolean(),
+  mcpEnabled: t.Boolean({ description: "Whether the team's MCP reach covers this project." }),
+  teamMcpEnabled: t.Boolean({ description: 'Whether the team is reachable over MCP at all.' }),
   features: FeaturesResponse,
 });
 
 export const updateProjectSettingsBody = t.Object({
-  mcpEnabled: t.Optional(t.Boolean()),
   features: t.Optional(t.Partial(FeaturesResponse)),
 });
 

@@ -1,12 +1,12 @@
 import { Elysia, t } from 'elysia';
 import { mcpTool } from '#mcp/generate';
 import { noContent } from '#shared/http';
-import { guards, entityGuard, assertMcpAllowed } from '#shared/guards';
+import { guards, entityGuard, assertMcpAllowed, requiresPermission } from '#shared/guards';
 import { authContext } from '#shared/auth-context';
 import { assertPermission, assertProjectOwner, requireUser } from '#shared/access';
 import { HttpError } from '#shared/lib';
 import { accessErrors, commonErrors, errors } from '#shared/responses';
-import { deleteObject } from '#shared/s3';
+import { deleteObject } from '@repo/storage';
 import {
   createIssue,
   searchIssues,
@@ -32,6 +32,9 @@ import {
   listFeedRange,
   listGroupedFeed,
   createComment,
+  getCommentRef,
+  updateComment,
+  deleteComment,
   recordActivity,
   textSide,
   type FeedCursor,
@@ -130,6 +133,8 @@ import {
   updateChecklistItemBody,
   feedRangeQuery,
   createCommentBody,
+  updateCommentBody,
+  commentParams,
   archiveIssueBody,
   BulkUpdatedResponse,
   BulkArchivedResponse,
@@ -178,24 +183,48 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
   .use(guards)
   // Guards for routes that address an entity by its own id (no :projectKey in the
   // path). Set `workItem` / `checklist` / `checklistItem` to the action in the
-  // route options, `worklog` to true. A checklist, its items and a time entry
-  // belong to the issue that carries them, so they all resolve to the same
-  // work_items permission.
+  // route options, `worklog` / `comment` to true. A checklist, its items, a time
+  // entry and a comment belong to the issue that carries them, so they all resolve
+  // to the same work_items permission.
   .macro({
     workItem: entityGuard('work_items', 'Issue not found', (p) =>
       getIssueProjectId(Number(p.issueId)),
     ),
+    // The checklist and stats routes carry the section they belong to, so turning it
+    // off in the project's settings closes them.
+    issueChecklist: entityGuard(
+      'work_items',
+      'Issue not found',
+      (p) => getIssueProjectId(Number(p.issueId)),
+      'checklists',
+    ),
+    issueStats: entityGuard(
+      'work_items',
+      'Issue not found',
+      (p) => getIssueProjectId(Number(p.issueId)),
+      'issueStats',
+    ),
     developmentIntegration: entityGuard('integrations', 'Issue not found', (p) =>
       getIssueProjectId(Number(p.issueId)),
     ),
-    checklist: entityGuard('work_items', 'Checklist not found', async (p) => {
-      const issueId = await getChecklistIssueId(Number(p.checklistId));
-      return issueId == null ? null : getIssueProjectId(issueId);
-    }),
-    checklistItem: entityGuard('work_items', 'Checklist item not found', async (p) => {
-      const issueId = await getChecklistItemIssueId(Number(p.itemId));
-      return issueId == null ? null : getIssueProjectId(issueId);
-    }),
+    checklist: entityGuard(
+      'work_items',
+      'Checklist not found',
+      async (p) => {
+        const issueId = await getChecklistIssueId(Number(p.checklistId));
+        return issueId == null ? null : getIssueProjectId(issueId);
+      },
+      'checklists',
+    ),
+    checklistItem: entityGuard(
+      'work_items',
+      'Checklist item not found',
+      async (p) => {
+        const issueId = await getChecklistItemIssueId(Number(p.itemId));
+        return issueId == null ? null : getIssueProjectId(issueId);
+      },
+      'checklists',
+    ),
     // A time entry belongs to the member who logged it: they change and delete
     // their own with the work_items edit this asserts. Someone else's is a record
     // of what that member did, so only a project owner may touch it — no
@@ -208,6 +237,22 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
           if (!entry) throw new HttpError(404, 'Time entry not found');
           await assertPermission(entry.projectId, user, 'work_items', 'edit');
           if (entry.userId !== requireUser(user).id)
+            await assertProjectOwner(entry.projectId, user);
+          await assertMcpAllowed(entry.projectId, request.headers);
+          return { projectId: entry.projectId };
+        },
+      };
+    },
+    // A comment belongs to the member who wrote it, the same rule the time entry
+    // above carries: the author changes or deletes their own with the work_items
+    // edit this asserts; another member's only a project owner can touch.
+    comment(_enabled: boolean) {
+      return {
+        async resolve({ params, user, request }) {
+          const entry = await getCommentRef(Number((params as { commentId: string }).commentId));
+          if (!entry) throw new HttpError(404, 'Comment not found');
+          await assertPermission(entry.projectId, user, 'work_items', 'edit');
+          if (entry.actorUserId !== requireUser(user).id)
             await assertProjectOwner(entry.projectId, user);
           await assertMcpAllowed(entry.projectId, request.headers);
           return { projectId: entry.projectId };
@@ -484,6 +529,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
       detail: {
         summary: 'Get an issue',
         description: 'Get an issue by its numeric id.',
+        ...requiresPermission(['work_items', 'read']),
         ...mcpTool('get_issue'),
       },
     },
@@ -843,7 +889,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
   // after a checklist write rather than the first render.
   .get('/issues/:issueId/checklists', async ({ params }) => listChecklists(params.issueId), {
     params: issueParams,
-    workItem: 'read',
+    issueChecklist: 'read',
     response: { 200: t.Array(ChecklistResponse), ...commonErrors },
     detail: {
       summary: "List an issue's checklists",
@@ -860,7 +906,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       body: checklistTitleBody,
       params: issueParams,
-      workItem: 'edit',
+      issueChecklist: 'edit',
       response: { 201: ChecklistResponse, ...commonErrors },
       detail: {
         summary: 'Add a checklist',
@@ -878,11 +924,12 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       body: OrderedIdsSchema,
       params: issueParams,
-      workItem: 'edit',
+      issueChecklist: 'edit',
       response: { 200: t.Array(ChecklistResponse), ...commonErrors },
       detail: {
         summary: "Reorder an issue's checklists",
         description: "Set the display order of an issue's checklists.",
+        ...mcpTool('reorder_checklists'),
       },
     },
   )
@@ -896,7 +943,11 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
       params: checklistParams,
       checklist: 'edit',
       response: { 200: ChecklistResponse, ...commonErrors },
-      detail: { summary: 'Rename a checklist', description: "Change a checklist's title." },
+      detail: {
+        summary: 'Rename a checklist',
+        description: "Change a checklist's title.",
+        ...mcpTool('rename_checklist'),
+      },
     },
   )
 
@@ -915,6 +966,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
       detail: {
         summary: 'Delete a checklist',
         description: 'Delete a checklist and every item on it.',
+        ...mcpTool('delete_checklist'),
       },
     },
   )
@@ -949,6 +1001,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
       detail: {
         summary: 'Reorder checklist items',
         description: 'Set the display order of the items within one checklist.',
+        ...mcpTool('reorder_checklist_items'),
       },
     },
   )
@@ -1205,7 +1258,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
   // stretch.
   .get('/issues/:issueId/timeline', async ({ params }) => listStatusTimeline(params.issueId), {
     params: issueParams,
-    workItem: 'read',
+    issueStats: 'read',
     response: { 200: t.Array(TimelineSegmentResponse), ...commonErrors },
     detail: {
       summary: 'Get an issue status timeline',
@@ -1221,7 +1274,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       params: issueParams,
       query: feedRangeQuery,
-      workItem: 'read',
+      issueStats: 'read',
       response: { 200: t.Array(FeedItemResponse), ...commonErrors },
       detail: {
         summary: 'Get the activity of one timeline stretch',
@@ -1259,7 +1312,7 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
     {
       body: createCommentBody,
       params: issueParams,
-      workItem: 'create',
+      workItem: 'edit',
       response: { 201: FeedItemResponse, ...commonErrors },
       detail: {
         summary: 'Add a comment',
@@ -1269,6 +1322,50 @@ export const issueRoutes = new Elysia({ name: 'issues', detail: { tags: ['Issues
           '@username in the body notifies that member or AI agent; the handles are ' +
           'the usernames in get_project.assignees.',
         ...mcpTool('add_comment'),
+      },
+    },
+  )
+
+  // Edits a comment's body. The author edits their own with the work_items edit
+  // the comment guard asserts; another member's only a project owner can change.
+  .patch(
+    '/comments/:commentId',
+    async ({ params, body, user, projectId }) =>
+      updateComment(params.commentId, body.body, requireUser(user).id, projectId),
+    {
+      body: updateCommentBody,
+      params: commentParams,
+      comment: true,
+      response: { 200: FeedItemResponse, ...commonErrors },
+      detail: {
+        summary: 'Edit a comment',
+        description:
+          'Change the text of a comment, and re-resolve its mentions: the members an ' +
+          'edit newly names are notified, the agents run. Your own comment needs ' +
+          "work_items edit; another member's comment only a project owner can change.",
+        ...mcpTool('update_comment'),
+      },
+    },
+  )
+
+  // Deletes a comment, together with its replies (they cascade on reply_to_id).
+  .delete(
+    '/comments/:commentId',
+    async ({ params, user, projectId }) => {
+      const removed = await deleteComment(params.commentId, requireUser(user).id, projectId);
+      if (!removed) throw new HttpError(404, 'Comment not found');
+      return noContent();
+    },
+    {
+      params: commentParams,
+      comment: true,
+      response: { 204: t.Void(), ...commonErrors },
+      detail: {
+        summary: 'Delete a comment',
+        description:
+          'Remove a comment and its replies. Your own comment needs work_items edit; ' +
+          "another member's comment only a project owner can remove.",
+        ...mcpTool('delete_comment'),
       },
     },
   );

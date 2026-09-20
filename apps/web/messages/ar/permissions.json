@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "عرض الصلاحيات",
   "none": "لم تُمنح أي صلاحيات",
   "grantedCount": "{count, plural, zero {مفيش صلاحيات ممنوحة} one {صلاحية واحدة ممنوحة} two {صلاحيتين ممنوحين} few {# صلاحيات ممنوحة} many {# صلاحية ممنوحة} other {# صلاحية ممنوحة}}",
   "resources": {
@@ -7,7 +6,7 @@
     "initiatives": "المبادرات (initiatives)",
     "cycles": "الدورات (cycles)",
     "dashboards": "لوحات المعلومات",
-    "documents": "Docs",
+    "documents": "المستندات",
     "views": "عروض عناصر العمل",
     "members_invite": "الدعوات",
     "members_manage": "الأعضاء",
@@ -24,6 +23,7 @@
     "actions": "الإجراءات",
     "webhooks": "خطافات الويب (webhooks)",
     "note_boards": "لوحات الملاحظات",
+    "import_export": "استيراد/تصدير",
     "danger_zone": "منطقة الخطر"
   },
   "actions": {
@@ -35,7 +35,7 @@
   "groups": {
     "workItems": "عناصر العمل",
     "dashboards": "لوحات المعلومات",
-    "documents": "Docs",
+    "documents": "المستندات",
     "notes": "الملاحظات",
     "ai": "الذكاء الاصطناعي",
     "configuration": "التهيئة",
@@ -45,5 +45,7 @@
   },
   "resourceColumn": "المورد",
   "allowed": "مسموح",
-  "notAllowed": "غير مسموح"
+  "notAllowed": "غير مسموح",
+  "accessHeading": "الوصول للمشروع ده",
+  "joined": "انضم في {date}"
 }

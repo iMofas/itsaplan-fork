@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "Посмотреть права",
   "none": "Права не предоставлены",
   "grantedCount": "Предоставлено {count, plural, one {# право} few {# права} many {# прав} other {# права}}",
   "resources": {
@@ -7,7 +6,7 @@
     "initiatives": "Инициативы",
     "cycles": "Циклы",
     "dashboards": "Дашборды",
-    "documents": "Docs",
+    "documents": "Документы",
     "views": "Представления задач",
     "members_invite": "Приглашения",
     "members_manage": "Участники",
@@ -24,6 +23,7 @@
     "actions": "Действия",
     "webhooks": "Вебхуки",
     "note_boards": "Доски заметок",
+    "import_export": "Импорт/Экспорт",
     "danger_zone": "Опасная зона"
   },
   "actions": {
@@ -35,7 +35,7 @@
   "groups": {
     "workItems": "Задачи",
     "dashboards": "Дашборды",
-    "documents": "Docs",
+    "documents": "Документы",
     "notes": "Заметки",
     "ai": "AI",
     "configuration": "Настройки",
@@ -45,5 +45,7 @@
   },
   "resourceColumn": "Ресурс",
   "allowed": "разрешено",
-  "notAllowed": "не разрешено"
+  "notAllowed": "не разрешено",
+  "accessHeading": "Доступ к этому проекту",
+  "joined": "присоединился {date}"
 }

@@ -1,13 +1,41 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, type Project, type CopyProjectIncludeKey } from '@/lib/api';
+import { removeMember } from '@/lib/api/endpoints/members';
+import {
+  type CopyProjectIncludeKey,
+  createTeamProject,
+  copyTeamProject,
+  updateTeamProject,
+  deleteTeamProject,
+} from '@/lib/api/endpoints/teams';
+import {
+  type Project,
+  type ProjectPreferencePatch,
+  listProjects,
+  getProject,
+  getBoardIssues,
+  createProject,
+  updateProject,
+  updateProjectPreferences,
+} from '@/lib/api/endpoints/projects';
 import { qk } from '@/services/queryKeys';
 
 export function useProjectsQuery() {
-  // Request the caller's resolved permission matrix per project; the Manage
-  // projects page shows it and the sidebar/switcher ignore the extra field.
-  return useQuery({
-    queryKey: qk.projects,
-    queryFn: () => api.listProjects({ permissions: true }),
+  return useQuery({ queryKey: qk.projects, queryFn: () => listProjects() });
+}
+
+export function useUpdateProjectPreferences() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ projectKey, patch }: { projectKey: string; patch: ProjectPreferencePatch }) =>
+      updateProjectPreferences(projectKey, patch),
+    onSuccess: (preferences, { projectKey }) => {
+      qc.setQueryData<Project[]>(qk.projects, (projects) =>
+        projects?.map((project) =>
+          project.key === projectKey ? { ...project, ...preferences } : project,
+        ),
+      );
+      void qc.invalidateQueries({ queryKey: qk.projects });
+    },
   });
 }
 
@@ -16,7 +44,7 @@ export function useProjectsQuery() {
 export function useProjectQuery(projectKey: string | null) {
   return useQuery({
     queryKey: qk.project(projectKey ?? ''),
-    queryFn: () => api.getProject(projectKey!),
+    queryFn: () => getProject(projectKey!),
     enabled: projectKey != null,
   });
 }
@@ -25,7 +53,7 @@ export function useProjectQuery(projectKey: string | null) {
 export function useBoardIssuesQuery(projectKey: string | null) {
   return useQuery({
     queryKey: qk.boardIssues(projectKey ?? ''),
-    queryFn: () => api.getBoardIssues(projectKey!),
+    queryFn: () => getBoardIssues(projectKey!),
     enabled: projectKey != null,
   });
 }
@@ -49,14 +77,19 @@ export function useInvalidateProject(projectKey: string | null) {
   };
 }
 
+// Creates a project, in a given team or — without one — in the team the caller owns.
+// `copyFromId` copies that project's structure instead of starting from a preset; the
+// source belongs to the same team.
 export function useCreateProject() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
-      copyFromKey,
+      teamId,
+      copyFromId,
       input,
     }: {
-      copyFromKey?: string;
+      teamId?: number;
+      copyFromId?: number;
       input: {
         key: string;
         name: string;
@@ -64,13 +97,21 @@ export function useCreateProject() {
         include?: Partial<Record<CopyProjectIncludeKey, boolean>>;
         preset?: string;
       };
-    }) => (copyFromKey ? api.copyProject(copyFromKey, input) : api.createProject(input)),
+    }) => {
+      if (teamId == null) return createProject(input);
+      return copyFromId == null
+        ? createTeamProject(teamId, input)
+        : copyTeamProject(teamId, copyFromId, input);
+    },
     onSuccess: (project) => {
       // Add the new project to the cached list immediately so navigating to it
       // (onCreated → setProjectKey) sticks. Otherwise the list has not refetched
       // yet and App's "unknown project key" guard bounces back to the first project.
       qc.setQueryData<Project[]>(qk.projects, (prev) => (prev ? [...prev, project] : [project]));
       void qc.invalidateQueries({ queryKey: qk.projects });
+      // The team panel lists the projects of the team, so it gains the new one.
+      void qc.invalidateQueries({ queryKey: qk.team(project.teamId) });
+      void qc.invalidateQueries({ queryKey: qk.teams });
     },
   });
 }
@@ -84,7 +125,7 @@ export function useUpdateProject() {
     }: {
       projectKey: string;
       patch: { name?: string; description?: string };
-    }) => api.updateProject(projectKey, patch),
+    }) => updateProject(projectKey, patch),
     onSuccess: (updated, { projectKey }) => {
       // Reflect the new name/description in the cached list immediately, then
       // refetch the list and the project detail (its header and switcher read
@@ -98,6 +139,34 @@ export function useUpdateProject() {
       );
       void qc.invalidateQueries({ queryKey: qk.projects });
       void qc.invalidateQueries({ queryKey: qk.project(projectKey) });
+    },
+  });
+}
+
+// Renames a project of a team, or edits its description. Team owners and managers
+// may, so the team route carries it rather than the project's own settings.
+export function useUpdateTeamProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      teamId,
+      projectId,
+      patch,
+    }: {
+      teamId: number;
+      projectId: number;
+      projectKey: string;
+      patch: { name?: string; description?: string };
+    }) => updateTeamProject(teamId, projectId, patch),
+    onSuccess: (updated, { teamId, projectKey }) => {
+      qc.setQueryData<Project[]>(qk.projects, (prev) =>
+        prev?.map((p) =>
+          p.key === projectKey ? { ...p, name: updated.name, description: updated.description } : p,
+        ),
+      );
+      void qc.invalidateQueries({ queryKey: qk.projects });
+      void qc.invalidateQueries({ queryKey: qk.project(projectKey) });
+      void qc.invalidateQueries({ queryKey: qk.team(teamId) });
     },
   });
 }
@@ -121,15 +190,32 @@ export function useLeaveProject() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ projectKey, userId }: { projectKey: string; userId: string }) =>
-      api.removeMember(projectKey, userId),
-    onSuccess: (_data, { projectKey }) => forgetProject(qc, projectKey),
+      removeMember(projectKey, userId),
+    onSuccess: (_data, { projectKey }) => {
+      forgetProject(qc, projectKey);
+      // The team panel counts the members of each project it lists and names them.
+      void qc.invalidateQueries({ queryKey: qk.anyTeam });
+    },
   });
 }
 
-export function useDeleteProject() {
+// Deletes a project of a team. Only a team owner may, so the team route carries it
+// rather than the project's own danger zone.
+export function useDeleteTeamProject() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (projectKey: string) => api.deleteProject(projectKey),
-    onSuccess: (_data, projectKey) => forgetProject(qc, projectKey),
+    mutationFn: ({
+      teamId,
+      projectId,
+    }: {
+      teamId: number;
+      projectId: number;
+      projectKey: string;
+    }) => deleteTeamProject(teamId, projectId),
+    onSuccess: (_data, { teamId, projectKey }) => {
+      forgetProject(qc, projectKey);
+      void qc.invalidateQueries({ queryKey: qk.team(teamId) });
+      void qc.invalidateQueries({ queryKey: qk.teams });
+    },
   });
 }

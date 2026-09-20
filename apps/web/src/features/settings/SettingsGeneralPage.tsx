@@ -1,7 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import type { ProjectDetail } from '@/lib/api';
+import type { ProjectDetail } from '@/lib/api/endpoints/projects';
 import { useShell } from '@/context/shellContext';
 import { settingsSection } from '@/utils/settingsSections';
 import { useSettingsSectionText } from '@/hooks/useSectionLabels';
@@ -34,8 +34,6 @@ function GeneralPage({ project }: { project: ProjectDetail }) {
     <SectionPageView
       title={sectionText.label}
       description={sectionText.description}
-      wide
-      widthClassName="min-w-[600px] max-w-[60%]"
       actions={
         form.editable ? (
           <Button size="sm" onClick={() => void form.save()} disabled={!form.canSave}>

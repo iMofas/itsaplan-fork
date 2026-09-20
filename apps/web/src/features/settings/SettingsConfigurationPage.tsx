@@ -2,7 +2,7 @@
 
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
-import type { ProjectDetail } from '@/lib/api';
+import type { ProjectDetail } from '@/lib/api/endpoints/projects';
 import { useShell } from '@/context/shellContext';
 import { settingsSection } from '@/utils/settingsSections';
 import { useSettingsSectionText } from '@/hooks/useSectionLabels';
@@ -53,8 +53,6 @@ function ConfigurationPage({ project }: { project: ProjectDetail }) {
     <SectionPageView
       title={sectionText.label}
       description={sectionText.description}
-      wide
-      widthClassName="min-w-[600px] max-w-[60%]"
       actions={
         can(section.resource, 'edit') ? (
           <Button size="sm" onClick={() => void save()} disabled={saving || !loaded}>

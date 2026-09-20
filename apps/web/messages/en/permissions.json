@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "View permissions",
   "none": "No permissions granted",
   "grantedCount": "{count, plural, one {# permission} other {# permissions}} granted",
   "resources": {
@@ -24,6 +23,7 @@
     "actions": "Actions",
     "webhooks": "Webhooks",
     "note_boards": "Note boards",
+    "import_export": "Import/Export",
     "danger_zone": "Danger zone"
   },
   "actions": {
@@ -45,5 +45,7 @@
   },
   "resourceColumn": "Resource",
   "allowed": "allowed",
-  "notAllowed": "not allowed"
+  "notAllowed": "not allowed",
+  "accessHeading": "Access to this project",
+  "joined": "joined {date}"
 }

@@ -1,17 +1,4 @@
 {
-  "pager": {
-    "perPage": "每页",
-    "rowsPerPage": "每页行数",
-    "range": "第 {first}-{last} 项，共 {total} 项",
-    "previous": "上一页",
-    "next": "下一页"
-  },
-  "access": {
-    "owner": "所有者拥有完整访问权限，不受角色权限矩阵限制。",
-    "role": "根据“{role}”角色确定。",
-    "default": "未分配角色，使用默认成员权限。",
-    "joined": "加入于 {date}"
-  },
   "providers": {
     "credential": "密码",
     "google": "Google",
@@ -113,18 +100,66 @@
       "views": "视图",
       "agents": "AI 代理",
       "skills": "技能",
-      "tools": "工具",
-      "integrations": "集成"
+      "tools": "工具"
     },
     "members": "成员",
     "noMembersTitle": "暂无成员",
     "noMembersHint": "需要邀请成员后才能访问此项目。"
   },
+  "teams": {
+    "empty": "没有符合搜索条件的团队。",
+    "searchPlaceholder": "按名称搜索",
+    "columns": {
+      "team": "团队",
+      "projects": "项目",
+      "members": "成员",
+      "issues": "工作项",
+      "agents": "代理",
+      "mcp": "MCP"
+    },
+    "mcpEnabled": "已启用",
+    "mcpOff": "已关闭",
+    "open": "打开团队",
+    "showDetails": "查看团队详情"
+  },
+  "teamPanel": {
+    "mcpEnabled": "MCP 已启用",
+    "mcpOff": "MCP 已关闭",
+    "created": "创建于 {date}",
+    "statTitle": "{label}：{value}",
+    "stats": {
+      "projects": "项目",
+      "issues": "工作项",
+      "members": "成员",
+      "agents": "AI 代理",
+      "skills": "技能",
+      "tools": "工具",
+      "roles": "项目角色"
+    },
+    "projects": "项目",
+    "searchProjects": "搜索项目",
+    "projectCounts": "{issues} 个工作项 · {members} 名成员",
+    "noProjectsTitle": "暂无项目",
+    "noProjectsHint": "该团队还没有项目。",
+    "noProjectMatches": "没有符合搜索条件的项目。",
+    "members": "成员",
+    "searchMembers": "搜索成员",
+    "noMembersTitle": "暂无成员",
+    "noMembersHint": "该团队还没有任何成员。",
+    "noMemberMatches": "没有符合搜索条件的成员。",
+    "roles": {
+      "owner": "所有者",
+      "manager": "管理员",
+      "member": "成员",
+      "agent": "代理"
+    },
+    "joined": "加入于 {date}"
+  },
   "general": {
     "saved": "项目默认设置已保存",
     "projectDefaults": "项目默认设置",
     "mcpEnabled": "新项目默认启用 MCP",
-    "mcpEnabledHint": "新项目创建后即可通过 MCP 访问。"
+    "mcpEnabledHint": "新项目创建时即纳入所属团队的 MCP 覆盖范围。"
   },
   "authentication": {
     "saved": "身份验证设置已保存",
@@ -151,6 +186,8 @@
     "requireVerificationHint": "新账户必须验证邮箱后才能登录。",
     "magicLink": "邮箱登录链接",
     "magicLinkHint": "通过邮件发送免密码登录链接。",
+    "trustProviderEmails": "信任登录提供方的邮箱地址",
+    "trustProviderEmailsHint": "通过 Google 或 OpenID Connect 登录时，直接进入已使用该邮箱地址的账户，无论该地址是否在此验证过。仅当由你决定谁能在提供方注册时才开启。",
     "emailPassword": "邮箱和密码",
     "emailPasswordHint": "提供登录和注册表单。关闭后只能通过登录提供方进入。",
     "needsSso": "请先在「集成」中配置登录提供方。"
@@ -203,8 +240,8 @@
     "timeout": "超时（秒）",
     "optional": "可选",
     "apiKey": "API 密钥",
-    "projectNotifications": "项目通知",
-    "projectNotificationsHint": "允许项目使用此服务商发送通知。每个项目可以自行选择是否使用。",
+    "teamNotifications": "团队通知",
+    "teamNotificationsHint": "允许团队通过该提供商投递通知，而无需配置自己的提供商。是否使用仍由各团队决定。",
     "test": "发送测试邮件",
     "testing": "正在发送…",
     "testHint": "使用当前设置发送真实邮件，无需先保存。",

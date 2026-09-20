@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Terminal } from 'lucide-react';
-import type { AgentSchedule, AgentScheduleInput, AiAgent } from '@/lib/api';
+import type { AiAgent } from '@/lib/api/endpoints/agents';
+import type { AgentSchedule, AgentScheduleInput } from '@/lib/api/endpoints/agentSchedules';
 import { AgentRunnerStatus } from '@/components/common/agent-chat/AgentRunnerStatus';
 import Modal from '@/components/common/overlay/Modal';
 import { Button } from '@/components/ui/button';
@@ -35,7 +36,7 @@ export function SettingsScheduleDialog({
 }) {
   const t = useTranslations('settings.schedules');
   const tCommon = useTranslations('common');
-  const tAgents = useTranslations('settings.agents');
+  const tAgents = useTranslations('teams.agents');
   const [agentId, setAgentId] = useState(String(initial?.agentId ?? agents[0]?.id ?? ''));
   const [name, setName] = useState(initial?.name ?? '');
   const [prompt, setPrompt] = useState(initial?.prompt ?? '');
@@ -69,7 +70,7 @@ export function SettingsScheduleDialog({
     <Modal
       title={initial ? t('editTitle') : t('newTitle')}
       description={t('dialogDescription')}
-      projectKey={projectKey}
+      scope={projectKey}
       onClose={onClose}
       wide
     >

@@ -1,17 +1,4 @@
 {
-  "pager": {
-    "perPage": "Per page",
-    "rowsPerPage": "Rows per page",
-    "range": "{first}-{last} of {total}",
-    "previous": "Previous page",
-    "next": "Next page"
-  },
-  "access": {
-    "owner": "An owner has full access: the role matrix is not consulted.",
-    "role": "Resolved from the \"{role}\" role.",
-    "default": "No role assigned: the default member permissions apply.",
-    "joined": "joined {date}"
-  },
   "providers": {
     "credential": "Password",
     "google": "Google",
@@ -113,18 +100,66 @@
       "views": "Views",
       "agents": "AI agents",
       "skills": "Skills",
-      "tools": "Tools",
-      "integrations": "Integrations"
+      "tools": "Tools"
     },
     "members": "Members",
     "noMembersTitle": "No members",
     "noMembersHint": "Nobody can reach this project until someone is invited to it."
   },
+  "teams": {
+    "empty": "No teams match this search.",
+    "searchPlaceholder": "Search by name",
+    "columns": {
+      "team": "Team",
+      "projects": "Projects",
+      "members": "Members",
+      "issues": "Issues",
+      "agents": "Agents",
+      "mcp": "MCP"
+    },
+    "mcpEnabled": "Enabled",
+    "mcpOff": "Off",
+    "open": "Open team",
+    "showDetails": "Show team details"
+  },
+  "teamPanel": {
+    "mcpEnabled": "MCP enabled",
+    "mcpOff": "MCP off",
+    "created": "created {date}",
+    "statTitle": "{label}: {value}",
+    "stats": {
+      "projects": "Projects",
+      "issues": "Issues",
+      "members": "Members",
+      "agents": "AI agents",
+      "skills": "Skills",
+      "tools": "Tools",
+      "roles": "Project roles"
+    },
+    "projects": "Projects",
+    "searchProjects": "Search projects",
+    "projectCounts": "{issues} issues · {members} members",
+    "noProjectsTitle": "No projects",
+    "noProjectsHint": "This team owns no projects yet.",
+    "noProjectMatches": "No projects match this search.",
+    "members": "Members",
+    "searchMembers": "Search members",
+    "noMembersTitle": "No members",
+    "noMembersHint": "Nobody belongs to this team yet.",
+    "noMemberMatches": "No members match this search.",
+    "roles": {
+      "owner": "Owner",
+      "manager": "Manager",
+      "member": "Member",
+      "agent": "Agent"
+    },
+    "joined": "joined {date}"
+  },
   "general": {
     "saved": "Project defaults saved",
     "projectDefaults": "Project defaults",
     "mcpEnabled": "Enable MCP on new projects",
-    "mcpEnabledHint": "A new project is reachable over MCP as soon as it is created."
+    "mcpEnabledHint": "A new project is in its team's MCP reach from the moment it is created."
   },
   "authentication": {
     "saved": "Authentication settings saved",
@@ -151,6 +186,8 @@
     "requireVerificationHint": "A new account must confirm its address before it can sign in.",
     "magicLink": "Sign-in links",
     "magicLinkHint": "Offer signing in with a link sent by email, alongside the password.",
+    "trustProviderEmails": "Trust addresses from sign-in providers",
+    "trustProviderEmailsHint": "Google and OpenID Connect sign a person in to the account that already has their address, confirmed here or not. Turn this on only where you control who can register at the provider.",
     "emailPassword": "Email and password",
     "emailPasswordHint": "Offer the sign-in and sign-up form. Turn it off to let people in through a sign-in provider only.",
     "needsSso": "Set up a sign-in provider under Integrations first."
@@ -203,8 +240,8 @@
     "timeout": "Timeout (s)",
     "optional": "Optional",
     "apiKey": "API key",
-    "projectNotifications": "Project notifications",
-    "projectNotificationsHint": "Let projects deliver their notifications through this provider instead of configuring one of their own. Each project still chooses whether to use it.",
+    "teamNotifications": "Team notifications",
+    "teamNotificationsHint": "Let teams deliver their notifications through this provider instead of configuring one of their own. Each team still chooses whether to use it.",
     "test": "Send test email",
     "testing": "Sending…",
     "testHint": "Send a real message with the current settings without saving them.",

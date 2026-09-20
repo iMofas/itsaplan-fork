@@ -1,4 +1,5 @@
 import {
+  Building2,
   FolderKanban,
   HardDrive,
   Keyboard,
@@ -34,6 +35,11 @@ export const GOD_SECTIONS: GodSection[] = [
     slug: 'users',
     group: 'management',
     icon: Users,
+  },
+  {
+    slug: 'teams',
+    group: 'management',
+    icon: Building2,
   },
   {
     slug: 'projects',
@@ -85,10 +91,6 @@ export const GOD_SECTIONS: GodSection[] = [
     integration: true,
   },
 ];
-
-// The content column a god page occupies. Shared with the skeletons that stand in
-// for a page, so a loading section is the width of the section that replaces it.
-export const GOD_COLUMN_CLASS = 'min-w-[600px] max-w-[60%]';
 
 export function godSection(slug: string): GodSection {
   const section = GOD_SECTIONS.find((s) => s.slug === slug);

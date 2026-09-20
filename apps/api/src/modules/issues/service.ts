@@ -34,6 +34,7 @@ import {
 import type { IssueQuery } from '#modules/agents/core/issue-query';
 import { iso, num, numOrNull, HttpError } from '#shared/lib';
 import type { ProjectRow } from '#modules/projects/service';
+import { assertProjectFeature } from '#shared/access';
 import {
   getCustomFieldById,
   type CustomFieldRow,
@@ -64,7 +65,6 @@ import {
   getFieldTriggerAgent,
   isProjectAgent,
 } from '#modules/agents/core/service';
-import { deleteThreadsWhere } from '#modules/agents/core/runtime/memory';
 import { getInitiativeProjectId } from '#modules/initiatives/service';
 import { cycleStatus, getCycleRef, type CycleStatus } from '#modules/cycles/service';
 import { getMembership } from '#modules/members/service';
@@ -436,10 +436,8 @@ export async function searchIssues(
 // Archives an issue: sets archived_at so it drops off the board and lists, keeping
 // the row for restore. Idempotent (archiving an archived issue is a no-op re-stamp
 // avoided by the archived_at guard). Records a feed entry. Returns the updated
-// issue, or null if it does not exist.
-//
-// The agents' conversation threads for the issue are deleted with it. Archiving is
-// reversible and this is not: a restored issue starts with empty agent memory.
+// issue, or null if it does not exist. Archiving is reversible, so nothing the issue
+// carries is dropped — the agents' conversation threads included.
 export async function archiveIssue(
   id: number,
   actorUserId?: string | null,
@@ -454,7 +452,6 @@ export async function archiveIssue(
     return getIssue(id);
   }
   await recordActivity(id, [{ action: 'archived' }], actorUserId);
-  await deleteThreadsWhere({ issueId: id });
   return getIssue(id);
 }
 
@@ -728,6 +725,7 @@ async function assertInitiative(
   initiativeId: number | null | undefined,
 ): Promise<void> {
   if (initiativeId == null) return;
+  await assertProjectFeature(projectId, 'initiatives');
   if ((await getInitiativeProjectId(initiativeId)) !== projectId)
     throw new HttpError(400, 'Initiative must belong to this project');
 }
@@ -743,6 +741,7 @@ async function assertCycle(
   currentCycleId: number | null = null,
 ): Promise<void> {
   if (cycleId == null || cycleId === currentCycleId) return;
+  await assertProjectFeature(projectId, 'cycles');
   const ref = await getCycleRef(cycleId);
   if (!ref || ref.projectId !== projectId)
     throw new HttpError(400, 'Cycle must belong to this project');
@@ -786,6 +785,7 @@ async function assertParent(
   parentId: number | null | undefined,
 ): Promise<void> {
   if (parentId == null) return;
+  await assertProjectFeature(projectId, 'subtasks');
   if (parentId === issueId) throw new HttpError(400, 'An issue cannot be its own parent');
   const rows = await db
     .select({ projectId: issue.projectId, parentId: issue.parentId })
@@ -822,6 +822,13 @@ async function assertIssueLabels(projectId: number, labelIds?: number[]): Promis
   if (rows.length !== ids.length) throw new HttpError(400, 'Labels must belong to this project');
 }
 
+// ISO 'YYYY-MM-DD' strings order correctly as plain strings. One date alone, or
+// the two equal, is fine.
+function assertDateOrder(startDate?: string | null, dueDate?: string | null) {
+  if (startDate && dueDate && dueDate < startDate)
+    throw new HttpError(400, 'Due date must not precede the start date');
+}
+
 // Atomic per-project sequence number (the "-42" in "MKT-42"): the UPDATE takes a
 // row lock on project, so concurrent createIssue calls for the same project never
 // hand out the same number.
@@ -837,6 +844,7 @@ export async function createIssue(
   await assertWipLimit(input.columnId);
   await assertIssueType(project.id, input.typeId);
   await assertParent(project.id, null, input.parentId);
+  assertDateOrder(input.startDate, input.dueDate);
   // Also checked by setIssueLabels below, but here it fails before the issue exists.
   await assertIssueLabels(project.id, input.labelIds);
   // An issue created in a column enters it the same way a moved one does, so the
@@ -1001,6 +1009,12 @@ export async function updateIssue(
   const before = await loadSnapshot(id);
   if (!before) return null;
 
+  // Each date is checked against the effective other one: a patch sets one date
+  // and leaves the stored value of the other in force.
+  assertDateOrder(
+    patch.startDate !== undefined ? patch.startDate : before.startDate,
+    patch.dueDate !== undefined ? patch.dueDate : before.dueDate,
+  );
   await assertAssignments(before.projectId, patch);
   await assertInitiative(before.projectId, patch.initiativeId);
   await assertCycle(before.projectId, patch.cycleId, before.cycleId);
@@ -1083,10 +1097,11 @@ export async function updateIssue(
 async function enqueueDelegateRun(after: IssueRow, actor?: ActivityActor): Promise<void> {
   const delegate = after.delegateUserId;
   if (!delegate || delegate === actorId(actor)) return;
-  const agent = await getAssignTriggerAgent(delegate, actorId(actor));
+  const agent = await getAssignTriggerAgent(after.projectId, delegate, actorId(actor));
   if (!agent) return;
   await enqueueAgentRun({
     agentId: agent.id,
+    projectId: after.projectId,
     issueId: after.id,
     sourceActivityId: null,
     prompt: `Work item ${after.identifier}: "${after.title}" has been delegated to you. Review it and take the appropriate next step.`,
@@ -1234,8 +1249,10 @@ export async function bulkUpdateIssues(
   const valid = await issuesInProject(projectId, ids);
   // The whole batch is checked against the limit before any of it is written:
   // per-issue checks inside the loop would move issues until the column filled up
-  // and then fail, leaving the move half-applied.
+  // and then fail, leaving the move half-applied. The column is checked first so
+  // the WIP message never names a column outside this project.
   if (patch.columnId !== undefined) {
+    await assertColumn(projectId, patch.columnId);
     const incoming = await countEnteringColumn(valid, patch.columnId);
     if (incoming > 0) await assertWipLimit(patch.columnId, incoming);
   }
@@ -1456,18 +1473,20 @@ async function assertFieldMember(
 // queue a run so it can act on the issue. Skipped when the agent set itself. The run
 // is executed later, so the write is never blocked on it.
 async function enqueueFieldRun(
+  projectId: number,
   issueId: number,
   field: CustomFieldRow,
   userId: string,
   actorUserId: string | null | undefined,
 ): Promise<void> {
   if (userId === actorUserId) return;
-  const agent = await getFieldTriggerAgent(userId, field.id, actorUserId ?? null);
+  const agent = await getFieldTriggerAgent(projectId, userId, field.id, actorUserId ?? null);
   if (!agent) return;
   const row = await getIssue(issueId);
   if (!row) return;
   await enqueueAgentRun({
     agentId: agent.id,
+    projectId,
     issueId,
     sourceActivityId: null,
     trigger: 'field',
@@ -1653,7 +1672,7 @@ export async function setIssueFieldValue(
   );
 
   if (memberUserId && memberUserId !== previousMemberUserId) {
-    await enqueueFieldRun(issueId, field, memberUserId, actorUserId);
+    await enqueueFieldRun(projectId, issueId, field, memberUserId, actorUserId);
     await notifyFieldMember(projectId, issueId, memberUserId, entry?.id ?? null, actorUserId);
   }
 

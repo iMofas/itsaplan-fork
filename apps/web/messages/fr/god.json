@@ -1,17 +1,4 @@
 {
-  "pager": {
-    "perPage": "Par page",
-    "rowsPerPage": "Lignes par page",
-    "range": "{first}-{last} sur {total}",
-    "previous": "Page précédente",
-    "next": "Page suivante"
-  },
-  "access": {
-    "owner": "Un propriétaire a un accès total : la matrice des rôles n'est pas consultée.",
-    "role": "Déduit du rôle « {role} ».",
-    "default": "Aucun rôle attribué : les permissions de membre par défaut s'appliquent.",
-    "joined": "arrivé {date}"
-  },
   "providers": {
     "credential": "Mot de passe",
     "google": "Google",
@@ -113,12 +100,60 @@
       "views": "Vues",
       "agents": "Agents IA",
       "skills": "Compétences",
-      "tools": "Outils",
-      "integrations": "Intégrations"
+      "tools": "Outils"
     },
     "members": "Membres",
     "noMembersTitle": "Aucun membre",
     "noMembersHint": "Personne ne peut accéder à ce projet tant que personne n'y est invité."
+  },
+  "teams": {
+    "empty": "Aucune équipe ne correspond à cette recherche.",
+    "searchPlaceholder": "Rechercher par nom",
+    "columns": {
+      "team": "Équipe",
+      "projects": "Projets",
+      "members": "Membres",
+      "issues": "Tickets",
+      "agents": "Agents",
+      "mcp": "MCP"
+    },
+    "mcpEnabled": "Activé",
+    "mcpOff": "Désactivé",
+    "open": "Ouvrir l'équipe",
+    "showDetails": "Afficher les détails de l'équipe"
+  },
+  "teamPanel": {
+    "mcpEnabled": "MCP activé",
+    "mcpOff": "MCP désactivé",
+    "created": "créée {date}",
+    "statTitle": "{label} : {value}",
+    "stats": {
+      "projects": "Projets",
+      "issues": "Tickets",
+      "members": "Membres",
+      "agents": "Agents IA",
+      "skills": "Compétences",
+      "tools": "Outils",
+      "roles": "Rôles de projet"
+    },
+    "projects": "Projets",
+    "searchProjects": "Rechercher des projets",
+    "projectCounts": "{issues} tickets · {members} membres",
+    "noProjectsTitle": "Aucun projet",
+    "noProjectsHint": "Cette équipe ne possède encore aucun projet.",
+    "noProjectMatches": "Aucun projet ne correspond à cette recherche.",
+    "members": "Membres",
+    "searchMembers": "Rechercher des membres",
+    "noMembersTitle": "Aucun membre",
+    "noMembersHint": "Personne n'appartient encore à cette équipe.",
+    "noMemberMatches": "Aucun membre ne correspond à cette recherche.",
+    "roles": {
+      "owner": "Propriétaire",
+      "manager": "Gestionnaire",
+      "member": "Membre",
+      "agent": "Agent"
+    },
+    "joined": "a rejoint le {date}"
   },
   "general": {
     "saved": "Valeurs par défaut des projets enregistrées",
@@ -151,6 +186,8 @@
     "requireVerificationHint": "Un nouveau compte doit confirmer son adresse avant de pouvoir se connecter.",
     "magicLink": "Liens de connexion",
     "magicLinkHint": "Proposer la connexion par lien envoyé par e-mail, en plus du mot de passe.",
+    "trustProviderEmails": "Faire confiance aux adresses des fournisseurs de connexion",
+    "trustProviderEmailsHint": "Google et OpenID Connect connectent la personne au compte qui porte déjà son adresse, que cette adresse soit confirmée ici ou non. À activer seulement si vous décidez qui peut s'inscrire chez le fournisseur.",
     "emailPassword": "E-mail et mot de passe",
     "emailPasswordHint": "Proposer le formulaire de connexion et d'inscription. Désactivez-le pour n'autoriser l'accès que via un fournisseur de connexion.",
     "needsSso": "Configurez d'abord un fournisseur de connexion dans Intégrations."
@@ -203,8 +240,8 @@
     "timeout": "Délai d'attente (s)",
     "optional": "Facultatif",
     "apiKey": "Clé d'API",
-    "projectNotifications": "Notifications des projets",
-    "projectNotificationsHint": "Permettre aux projets d'envoyer leurs notifications via ce fournisseur au lieu d'en configurer un. Chaque projet choisit tout de même de l'utiliser ou non.",
+    "teamNotifications": "Notifications des équipes",
+    "teamNotificationsHint": "Permet aux équipes d'envoyer leurs notifications via ce fournisseur plutôt que d'en configurer un. Chaque équipe choisit de l'utiliser ou non.",
     "test": "Envoyer un e-mail de test",
     "testing": "Envoi…",
     "testHint": "Envoyer un vrai message avec les paramètres actuels, sans les enregistrer.",

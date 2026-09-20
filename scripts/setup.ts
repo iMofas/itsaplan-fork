@@ -20,7 +20,9 @@ const answer = <T>(value: T | symbol): T => {
 // Output is captured rather than inherited: docker and drizzle write while a spinner
 // is running, and only a failure is worth showing.
 const exec = async (...cmd: string[]) => {
-  const proc = Bun.spawn(cmd, { cwd: root, stdout: 'pipe', stderr: 'pipe' });
+  // env explicitly: Bun.spawn otherwise hands the child the environment this process
+  // started with, and a variable set here would not reach it.
+  const proc = Bun.spawn(cmd, { cwd: root, env: process.env, stdout: 'pipe', stderr: 'pipe' });
   const [code, stdout, stderr] = await Promise.all([
     proc.exited,
     new Response(proc.stdout).text(),
@@ -103,7 +105,7 @@ const requireDocker = async () => {
 
 const openBrowser = (url: string) => exec(process.platform === 'darwin' ? 'open' : 'xdg-open', url);
 
-const secrets = ['BETTER_AUTH_SECRET', 'APP_ENCRYPTION_KEY', 'WORKER_INTERNAL_TOKEN'];
+const secrets = ['BETTER_AUTH_SECRET', 'APP_ENCRYPTION_KEY'];
 
 /** Every value the setup chooses, with the default to prefill when the file carries none. */
 const generated: Record<string, string> = {
@@ -268,7 +270,31 @@ if (mode === 'env') {
 
 if (mode === 'try') {
   const compose = ['docker', 'compose'];
+  const TRY_VOLUME = 'itsaplan_postgres-data';
   await stopOther(['docker', 'compose', '-f', 'docker-compose.dev.yml'], 'Develop');
+
+  // Before writeSecrets, which generates new secrets only while the volume is absent.
+  if (await volumeExists(TRY_VOLUME)) {
+    const wipe = answer(
+      await p.select({
+        message: 'This instance already has data.',
+        options: [
+          { value: false, label: 'Keep it', hint: 'the existing accounts and projects stay' },
+          {
+            value: true,
+            label: 'Start fresh',
+            hint: 'the database and every uploaded file are deleted',
+          },
+        ],
+      }),
+    );
+    if (wipe) {
+      const wiping = p.spinner();
+      wiping.start('Deleting the data');
+      await run(...compose, 'down', '-v');
+      wiping.stop('Data deleted');
+    }
+  }
 
   const running = await isUp(compose);
 
@@ -289,7 +315,7 @@ if (mode === 'try') {
     env.set('WEB_PORT', String(webPort));
     env.set('API_URL', `http://localhost:${apiPort}`);
     env.set('APP_URL', `http://localhost:${webPort}`);
-    await writeSecrets(env, 'itsaplan_postgres-data');
+    await writeSecrets(env, TRY_VOLUME);
     env.save();
   }
 
@@ -396,6 +422,9 @@ if (mode === 'dev') {
   migrations.start('Applying migrations');
   // The programmatic runner, not `bun run db:migrate`: drizzle-kit exits 1 without printing
   // what the database refused, and a failure here is exactly what needs reading.
+  // Its pre-migration dump goes to BACKUP_DIR, a path only the api container has, and a
+  // local database the operator recreates at will has nothing to go back to anyway.
+  process.env.SKIP_PRE_MIGRATION_BACKUP = '1';
   await run('bun', '--env-file=.env', 'packages/db/src/migrate.ts');
   await run('bun', '--env-file=.env.test', 'packages/db/src/migrate.ts');
   migrations.stop(`Migrated ${database} and ${testDatabase}`);

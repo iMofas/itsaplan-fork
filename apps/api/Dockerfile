@@ -18,13 +18,16 @@ COPY packages/agent-tools/package.json ./packages/agent-tools/
 COPY packages/crypto/package.json ./packages/crypto/
 COPY packages/mailer/package.json ./packages/mailer/
 COPY packages/net/package.json ./packages/net/
+COPY packages/storage/package.json ./packages/storage/
 COPY packages/runner/package.json ./packages/runner/
 COPY packages/eslint-config/package.json ./packages/eslint-config/
-# --filter api installs only the api workspace and its dependency closure, so the
-# image excludes every other app's deps. INSTALL_FLAGS defaults to --production;
-# the test gate overrides it to "" so the api suite gets its devDeps (@elysiajs/eden).
+# INSTALL_FILTER installs only the api workspace and its dependency closure, so the
+# image excludes every other app's deps. INSTALL_FLAGS defaults to --production; the
+# test gate overrides both — it runs the bot and worker suites out of this image, and
+# those need their own workspace links and the devDeps the suites import.
+ARG INSTALL_FILTER="--filter api"
 ARG INSTALL_FLAGS="--production"
-RUN bun install --frozen-lockfile --filter api $INSTALL_FLAGS
+RUN bun install --frozen-lockfile $INSTALL_FILTER $INSTALL_FLAGS
 
 # 2) Final image. bun keeps some workspace deps in per-package node_modules
 # (packages/db/node_modules, apps/api/node_modules) rather than hoisting them to
@@ -33,6 +36,11 @@ RUN bun install --frozen-lockfile --filter api $INSTALL_FLAGS
 # clobber the copied dependencies.
 FROM base AS release
 ENV NODE_ENV=production
+# pg_dump, for the backup migrate.ts takes before it applies anything. The package
+# tracks the Postgres the compose file runs (17), and a client older than the server
+# refuses to dump, so an instance on a newer server needs a newer image or
+# SKIP_PRE_MIGRATION_BACKUP=1.
+RUN apk add --no-cache postgresql-client
 COPY --from=install /app ./
 COPY . .
 

@@ -1,5 +1,6 @@
 import { t } from 'elysia';
 import { REGISTRATION_MODES } from '@repo/auth';
+import { pageQueryFields, pageResponse } from '#shared/pagination';
 import { PermissionMatrixSchema } from '#shared/permissions';
 import { USER_KINDS } from './service';
 
@@ -14,14 +15,14 @@ export const listUsersQuery = t.Object({
   // Agent bot users are accounts too, but they are managed on a project's AI
   // Agents screen, so the directory lists people unless asked otherwise.
   kind: t.Optional(t.UnionEnum([...USER_KINDS])),
-  limit: t.Optional(t.Numeric({ minimum: 1, maximum: 200 })),
-  offset: t.Optional(t.Numeric({ minimum: 0 })),
+  ...pageQueryFields,
 });
 
-export const listProjectsQuery = t.Object({
+// The query every searchable directory listing takes: the projects, the teams, and a
+// team's own projects and members.
+export const searchPageQuery = t.Object({
   search: t.Optional(t.String()),
-  limit: t.Optional(t.Numeric({ minimum: 1, maximum: 200 })),
-  offset: t.Optional(t.Numeric({ minimum: 0 })),
+  ...pageQueryFields,
 });
 
 export const deleteUserQuery = t.Object({
@@ -35,6 +36,7 @@ export const AuthSettingsResponse = t.Object({
   requireEmailVerification: t.Boolean(),
   magicLink: t.Boolean(),
   emailPassword: t.Boolean(),
+  trustProviderEmails: t.Boolean(),
   // The settings that depend on outbound email cannot be turned on without a mail
   // provider, and the UI explains why.
   hasEmailProvider: t.Boolean(),
@@ -48,6 +50,7 @@ export const AuthSettingsBody = t.Object({
   requireEmailVerification: t.Optional(t.Boolean()),
   magicLink: t.Optional(t.Boolean()),
   emailPassword: t.Optional(t.Boolean()),
+  trustProviderEmails: t.Optional(t.Boolean()),
 });
 
 export const EmailSettingsResponse = t.Object({
@@ -220,10 +223,7 @@ export const InstanceUserDetailResponse = t.Composite([
   }),
 ]);
 
-export const InstanceUserListResponse = t.Object({
-  items: t.Array(InstanceUserResponse),
-  total: t.Number(),
-});
+export const InstanceUserPageResponse = pageResponse(InstanceUserResponse);
 
 const InstanceProjectResponse = t.Object({
   id: t.Number(),
@@ -240,7 +240,6 @@ const InstanceProjectResponse = t.Object({
   agentCount: t.Number(),
   skillCount: t.Number(),
   toolCount: t.Number(),
-  integrationCount: t.Number(),
   lastActivityAt: t.Nullable(t.String()),
   createdAt: t.String(),
 });
@@ -253,12 +252,15 @@ export const InstanceProjectDetailResponse = t.Composite([
         userId: t.String(),
         name: t.String(),
         email: t.String(),
+        username: t.Nullable(t.String()),
         image: t.Nullable(t.String()),
         isAgent: t.Boolean(),
         role: t.UnionEnum(['owner', 'member']),
         roleId: t.Nullable(t.Number()),
         roleName: t.Nullable(t.String()),
         permissions: PermissionMatrixSchema,
+        description: t.String(),
+        timezone: t.String(),
         joinedAt: t.String(),
       }),
     ),
@@ -266,7 +268,50 @@ export const InstanceProjectDetailResponse = t.Composite([
   }),
 ]);
 
-export const InstanceProjectListResponse = t.Object({
-  items: t.Array(InstanceProjectResponse),
-  total: t.Number(),
+export const InstanceProjectPageResponse = pageResponse(InstanceProjectResponse);
+
+export const InstanceProjectOptionListResponse = t.Array(
+  t.Object({ id: t.Number(), key: t.String(), name: t.String() }),
+);
+
+export const teamParams = t.Object({ teamId: t.Numeric() });
+
+export const InstanceTeamResponse = t.Object({
+  id: t.Number(),
+  name: t.String(),
+  mcpEnabled: t.Boolean(),
+  memberCount: t.Number(),
+  projectCount: t.Number(),
+  issueCount: t.Number(),
+  agentCount: t.Number(),
+  skillCount: t.Number(),
+  toolCount: t.Number(),
+  roleCount: t.Number(),
+  createdAt: t.String(),
 });
+
+export const InstanceTeamPageResponse = pageResponse(InstanceTeamResponse);
+
+export const InstanceTeamProjectPageResponse = pageResponse(
+  t.Object({
+    id: t.Number(),
+    key: t.String(),
+    name: t.String(),
+    mcpEnabled: t.Boolean(),
+    memberCount: t.Number(),
+    issueCount: t.Number(),
+    createdAt: t.String(),
+  }),
+);
+
+export const InstanceTeamMemberPageResponse = pageResponse(
+  t.Object({
+    userId: t.String(),
+    name: t.String(),
+    email: t.String(),
+    image: t.Nullable(t.String()),
+    isAgent: t.Boolean(),
+    role: t.UnionEnum(['owner', 'manager', 'member', 'agent']),
+    joinedAt: t.String(),
+  }),
+);

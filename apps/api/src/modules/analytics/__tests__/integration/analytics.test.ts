@@ -3,6 +3,7 @@ import { authedApi, type Api } from '#tests/helpers/app';
 import { signUpTestUser, type TestUser } from '#tests/helpers/auth';
 import { resetDb } from '#tests/helpers/db';
 import { pulseRows } from '../../service';
+import { createAgent } from '#tests/helpers/agents';
 
 // Read-only project analytics. Every figure is derived from the issue /
 // project_column / issue_activity / issue_status tables, so the tests build state
@@ -260,7 +261,7 @@ describe('analytics', () => {
 
     it('groups by delegate with a Not-delegated bucket', async () => {
       const { asOwner, col } = await setupProject();
-      const agent = await createAgent(asOwner, 'helperbot');
+      const agent = await makeAgent(asOwner, 'helperbot');
       const delegated = await createIssue(asOwner, col.started);
       await asOwner.issues({ issueId: delegated.id }).patch({ delegateUserId: agent.userId });
       await createIssue(asOwner, col.started);
@@ -289,6 +290,56 @@ describe('analytics', () => {
   });
 
   describe('pulse', () => {
+    it('counts the authenticated actor independently of assignment', async () => {
+      const { asOwner, owner, col } = await setupProject();
+      const second = await signUpTestUser({ name: 'Second' });
+      const invited = await asOwner
+        .projects({ projectKey: 'MKT' })
+        .invites.post({ email: second.email, role: 'owner' });
+      expect(invited.status).toBe(201);
+      const asSecond = authedApi(second.cookie);
+      await asSecond.invites({ token: invited.data!.token }).accept.post();
+      await createIssue(asOwner, col.started, { assigneeUserId: second.userId });
+      await createIssue(asSecond, col.started, { assigneeUserId: owner.userId });
+      await createIssue(asSecond, col.started);
+      for (const unit of ['hour', 'day', 'week'] as const) {
+        const all = await asOwner
+          .projects({ projectKey: 'MKT' })
+          .analytics.pulse.get({ query: { unit, columns: 2 } });
+        const mine = await asOwner
+          .projects({ projectKey: 'MKT' })
+          .analytics.pulse.get({ query: { unit, columns: 2, scope: 'me' } });
+        const theirs = await asSecond
+          .projects({ projectKey: 'MKT' })
+          .analytics.pulse.get({ query: { unit, columns: 2, scope: 'me' } });
+        expect(mine.status).toBe(200);
+        expect(theirs.status).toBe(200);
+        expect(mine.data!.reduce((sum, b) => sum + b.count, 0)).toBe(1);
+        expect(theirs.data!.reduce((sum, b) => sum + b.count, 0)).toBe(2);
+        expect(all.data!.reduce((sum, b) => sum + b.count, 0)).toBe(3);
+        expect(mine.data!.map((b) => b.label)).toEqual(all.data!.map((b) => b.label));
+      }
+    });
+
+    it('keeps empty personal periods zero-filled and rejects unknown scopes', async () => {
+      const { asOwner } = await setupProject();
+      const res = await asOwner
+        .projects({ projectKey: 'MKT' })
+        .analytics.pulse.get({ query: { scope: 'me', columns: 2 } });
+      expect(res.status).toBe(200);
+      expect(res.data).toHaveLength(14);
+      expect(res.data!.every((b) => b.count === 0)).toBe(true);
+      const invalid = await asOwner
+        .projects({ projectKey: 'MKT' })
+        .analytics.pulse.get({ query: { scope: 'unknown' as 'me' } });
+      expect(invalid.status).toBe(400);
+      const outsider = await signUpTestUser();
+      const denied = await authedApi(outsider.cookie)
+        .projects({ projectKey: 'MKT' })
+        .analytics.pulse.get({ query: { scope: 'me' } });
+      expect(denied.status).toBe(403);
+    });
+
     it('returns a zero-filled default day series for an empty project', async () => {
       const { asOwner } = await setupProject();
       const res = await asOwner.projects({ projectKey: 'MKT' }).analytics.pulse.get();
@@ -489,14 +540,12 @@ describe('analytics', () => {
 
   // Creates an agent (external by default) and returns its bot user id, so a test
   // can delegate an issue to it or assert the workload roster.
-  async function createAgent(
+  async function makeAgent(
     asOwner: Api,
     username: string,
     kind: 'external' | 'internal' = 'external',
   ) {
-    const res = await asOwner
-      .projects({ projectKey: 'MKT' })
-      ['ai-agents'].post({ name: username, username, kind });
+    const res = await createAgent(asOwner, 'MKT', { name: username, username, kind });
     if (!res.data) throw new Error(`createAgent failed with status ${res.status}`);
     return res.data.agent;
   }
@@ -582,7 +631,7 @@ describe('analytics', () => {
 
     it('counts open issues delegated to an agent and reports zero runs', async () => {
       const { asOwner, col } = await setupProject();
-      const agent = await createAgent(asOwner, 'helperbot');
+      const agent = await makeAgent(asOwner, 'helperbot');
       const issue = await createIssue(asOwner, col.started);
       await asOwner.issues({ issueId: issue.id }).patch({ delegateUserId: agent.userId });
 
@@ -602,7 +651,7 @@ describe('analytics', () => {
 
     it('excludes completed and canceled issues from the delegated count', async () => {
       const { asOwner, col } = await setupProject();
-      const agent = await createAgent(asOwner, 'helperbot');
+      const agent = await makeAgent(asOwner, 'helperbot');
       const open = await createIssue(asOwner, col.started);
       const done = await createIssue(asOwner, col.completed);
       await asOwner.issues({ issueId: open.id }).patch({ delegateUserId: agent.userId });

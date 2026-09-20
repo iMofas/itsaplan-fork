@@ -1,5 +1,5 @@
 import { useTranslations } from 'next-intl';
-import type { NotificationEncryption } from '@/lib/api';
+import type { NotificationEncryption } from '@/lib/api/endpoints/notificationSettings';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -102,7 +102,6 @@ export default function GodEmailProviderSection({ form }: { form: GodEmailForm }
                 value={form.password}
                 onChange={form.setPassword}
                 hasStored={settings.smtp.hasPassword}
-                editable
                 placeholder={t('passwordPlaceholder')}
               />
             </div>
@@ -126,7 +125,6 @@ export default function GodEmailProviderSection({ form }: { form: GodEmailForm }
               value={form.apiKey}
               onChange={form.setApiKey}
               hasStored={settings.resend.hasApiKey}
-              editable
               placeholder="re_…"
             />
           </div>

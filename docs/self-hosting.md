@@ -19,7 +19,6 @@ The stack refuses to start while one of these is missing:
 | `POSTGRES_PASSWORD`     | `openssl rand -base64 32`                  |
 | `BETTER_AUTH_SECRET`    | `openssl rand -base64 32`                  |
 | `APP_ENCRYPTION_KEY`    | `openssl rand -base64 32`                  |
-| `WORKER_INTERNAL_TOKEN` | `openssl rand -base64 32`                  |
 | `S3_ACCESS_KEY_ID`      | the MinIO root user, any name over 3 chars |
 | `S3_SECRET_ACCESS_KEY`  | `openssl rand -base64 32`                  |
 
@@ -51,6 +50,14 @@ The first sign-in creates the account, and the registration mode under **Authent
 decides whether it may: `open` creates it, `invite only` needs a pending project invite,
 `closed` refuses it. On a closed instance, provision people with SCIM.
 
+A sign-in whose address already has an account joins that account instead of creating a
+second one. That needs the provider to report the address as verified and the account to
+have confirmed its own, so it is refused when the OIDC client leaves `email_verified` off
+the token, or when the instance has no mail provider and so no confirmed accounts.
+**Authentication → Trust addresses from sign-in providers** drops both conditions. Turn it
+on only where you control who can register at the provider: anyone who registers an address
+there takes over the account that holds it here.
+
 Once a provider works, you can turn off **Authentication → Email and password**. The sign-in
 and sign-up forms, password reset and sign-in links are then hidden and refused, and the
 provider is the only way in. Passkeys keep working, because a passkey can only be added to an
@@ -68,28 +75,27 @@ project access through its groups.
    (`<API_URL>/scim/v2`), authenticating with `Authorization: Bearer <token>`.
 3. Push users, and groups if you use them.
 
-Deactivating someone at the provider (`active: false`) ends their sessions and refuses their
-API keys. Reactivating restores both, with their projects intact.
+Deactivating someone at the provider (`active: false`) ends their sessions and refuses
+their API keys; reactivating restores them with their projects intact. The instance owner's
+own account is outside SCIM's reach — a provisioning run can neither change nor deactivate
+it, and a repeated create for an address it already provisioned answers "already exists"
+rather than overwriting the link back to the provider.
 
-The instance owner's account is outside SCIM's reach: a provisioning run cannot change or
-deactivate it. A repeated create for an address SCIM already provisioned answers "already
-exists" instead of overwriting the link back to the provider.
+A pushed group grants nothing until you say what it is for: on the same page, open a group
+and add the projects its members should join, and the role they join on. A project belongs
+to a team, so joining one also makes the person a member of that team, on the plain member
+rank; the roles you can pick from are the team's. Removing a project from that list takes
+away the memberships the group gave it, and once the group grants nothing else in that team,
+the team membership goes with them. A membership someone got through an invite is never
+touched by a sync, in either direction, and one the sync created cannot be edited from the
+project's members page, nor ended from the team's — it changes at the identity provider.
+What the person ranks as in the team is still the team's own to set.
 
-A pushed group grants nothing until you map it. On the same page, open the group and add the
-projects its members join, and the role they join on. Remove a project from that list, and
-the memberships the group gave it go away.
-
-A sync never touches a membership someone got through an invite. A membership the sync
-created cannot be edited from the project's members page — it changes at the identity
-provider.
-
-A group also appears here without an explicit push in two cases:
-
-- a SCIM user whose payload embeds a `groups` attribute, instead of a separate group push,
-- anyone who signs in through OIDC while their provider puts a `groups` claim on the token.
-  Set that up as a claim mapping on the OIDC client.
-
-Map such a group the same way once it appears.
+A group also appears here without any explicit push, in two cases: a SCIM user whose
+payload embeds a `groups` attribute instead of being assigned through a separate group
+push, and anyone who signs in through OIDC while their identity provider puts a `groups`
+claim on the token — set that up as a claim mapping on the OIDC client if the provider
+supports one. Either way, map the group the same way once it shows up.
 
 ## Updating
 
@@ -101,6 +107,18 @@ docker compose up -d
 
 `git pull` updates the compose file. The services come from the registry. Changing `API_URL`
 or `APP_URL` afterwards only needs `docker compose up -d`.
+
+The api applies its migrations on startup, so an upgrade needs no database step. Before
+it applies anything it dumps the database into the `db-backups` volume (`/backups` in the
+api container) and refuses to start if that dump fails — a release whose migrations
+rewrite data is not applied without something to go back to. Dumps are deleted after 30
+days, on the first startup past that; `BACKUP_RETENTION_DAYS` changes the window and
+`SKIP_PRE_MIGRATION_BACKUP=1` upgrades without one, for an operator who backs up by
+other means. After the upgrade the app shows the instance owner where the dump is and
+what the migrations changed.
+
+If you call the API from your own scripts or from an MCP client, read
+[breaking changes](breaking-changes.md) for the paths a release removed.
 
 ## Building from source instead
 

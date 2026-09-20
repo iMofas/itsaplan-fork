@@ -12,7 +12,7 @@ const MULTIPART_OPERATIONS = new Set([
   'POST /issues/{issueId}/attachments',
   'PUT /attachments/{publicId}',
   'POST /me/avatar',
-  'POST /projects/{projectKey}/agent-skills/{skillId}/references',
+  'POST /teams/{teamId}/agent-skills/{skillId}/references',
 ]);
 
 const PUBLIC_GET_PATHS = [
@@ -99,10 +99,6 @@ function normalizeOperationSecurity(operation: Operation, path: string, method: 
   if (path.startsWith('/scim/v2/')) {
     operation.tags = ['SCIM'];
     operation.security = [{ scimBearer: [] }];
-    return;
-  }
-  if (path.startsWith('/internal/')) {
-    operation.security = [{ workerToken: [] }];
     return;
   }
   if (path === '/webhooks/git/{webhookId}' || path === '/webhooks/github/{webhookId}') {

@@ -1,5 +1,4 @@
 {
-  "viewPermissions": "Voir les permissions",
   "none": "Aucune permission accordée",
   "grantedCount": "{count, plural, one {# permission accordée} other {# permissions accordées}}",
   "resources": {
@@ -7,7 +6,7 @@
     "initiatives": "Initiatives",
     "cycles": "Cycles",
     "dashboards": "Tableaux de bord",
-    "documents": "Docs",
+    "documents": "Documents",
     "views": "Vues de tickets",
     "members_invite": "Invitations",
     "members_manage": "Membres",
@@ -24,6 +23,7 @@
     "actions": "Actions",
     "webhooks": "Webhooks",
     "note_boards": "Tableaux de notes",
+    "import_export": "Import/Export",
     "danger_zone": "Zone sensible"
   },
   "actions": {
@@ -35,7 +35,7 @@
   "groups": {
     "workItems": "Tickets",
     "dashboards": "Tableaux de bord",
-    "documents": "Docs",
+    "documents": "Documents",
     "notes": "Notes",
     "ai": "IA",
     "configuration": "Configuration",
@@ -45,5 +45,7 @@
   },
   "resourceColumn": "Ressource",
   "allowed": "autorisé",
-  "notAllowed": "non autorisé"
+  "notAllowed": "non autorisé",
+  "accessHeading": "Accès à ce projet",
+  "joined": "arrivé {date}"
 }

@@ -15,6 +15,10 @@
       "label": "Utilisateurs",
       "description": "Tous les comptes de cette instance : le rôle global, si l'adresse est confirmée, et les projets auxquels chaque utilisateur a accès."
     },
+    "teams": {
+      "label": "Équipes",
+      "description": "Toutes les équipes de cette instance : les projets qu'elle possède et qui en fait partie."
+    },
     "projects": {
       "label": "Projets",
       "description": "Tous les projets de cette instance : ce que chacun contient, sa dernière activité, et qui peut y accéder."
@@ -57,10 +61,6 @@
       "label": "Général",
       "description": "Le nom et la description du projet, ainsi que les sections qu'il affiche."
     },
-    "notifications": {
-      "label": "Fournisseurs de notifications",
-      "description": "Les identifiants e-mail (SMTP ou Resend) et le bot Telegram par lesquels ce projet envoie ses notifications."
-    },
     "states": {
       "label": "États",
       "description": "Les états du flux de travail par lesquels passent les tickets, chacun affiché comme une colonne."
@@ -101,21 +101,13 @@
       "label": "Dépôts",
       "description": "Fermez les tickets quand leurs pull requests sont fusionnées sur GitHub, GitLab, Gitea, Forgejo ou Bitbucket."
     },
+    "import-export": {
+      "label": "Import/Export",
+      "description": "Importez les tickets, commentaires et étiquettes depuis une instance Plane auto-hébergée, ou exportez les données du projet au format JSON."
+    },
     "ai-agents": {
       "label": "Agents",
       "description": "Des comptes bots auxquels vous pouvez déléguer des tickets."
-    },
-    "integrations": {
-      "label": "Intégrations",
-      "description": "Les identifiants que vos agents utilisent pour accéder aux fournisseurs d'IA et aux outils."
-    },
-    "agent-skills": {
-      "label": "Compétences",
-      "description": "Des instructions réutilisables que les agents internes chargent à la demande."
-    },
-    "agent-tools": {
-      "label": "Outils",
-      "description": "Les outils que les agents peuvent appeler, chacun relié aux identifiants d'une intégration."
     }
   }
 }
