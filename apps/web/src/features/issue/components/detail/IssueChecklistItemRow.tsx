@@ -36,7 +36,7 @@ export default function IssueChecklistItemRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'group flex items-center gap-2 rounded-md px-2 py-1 hover:bg-accent/50',
+        'group flex items-start gap-2 rounded-md px-2 py-1 hover:bg-accent/50',
         isDragging && 'opacity-40',
       )}
     >
@@ -44,10 +44,11 @@ export default function IssueChecklistItemRow({
         canEdit={canEdit}
         attributes={attributes}
         listeners={listeners}
-        className="group-hover:text-muted-foreground"
+        className="mt-0.5 group-hover:text-muted-foreground"
       />
 
       <Checkbox
+        className="mt-0.5"
         checked={item.done}
         disabled={!canEdit}
         aria-label={item.content}

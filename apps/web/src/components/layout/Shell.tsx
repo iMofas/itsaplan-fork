@@ -14,6 +14,7 @@ import { useSettingsNavGroups } from '@/hooks/useSettingsNavGroups';
 import { useShellProject } from '@/hooks/useShellProject';
 import { useShellRoute } from '@/hooks/useShellRoute';
 import { useAppBadge } from '@/hooks/useAppBadge';
+import { useShellDocumentTitle } from '@/hooks/useShellDocumentTitle';
 import { useProjectRouteSync } from '@/hooks/useProjectRouteSync';
 import { projectPath, issuePath } from '@/utils/paths';
 import { defaultsFromFilters, type NewIssueDefaults } from '@/utils/project';
@@ -85,6 +86,12 @@ export default function Shell({
   const openNewProject = newProjectTeamId != null ? () => overlays.setShowNewProject(true) : null;
 
   useProjectRouteSync({ projects, projectsLoaded, projectKey });
+  useShellDocumentTitle({
+    route,
+    project: project?.project ?? null,
+    routeIssueId: issueQuery.data?.id ?? null,
+    panelIssueId: overlays.openIssueId,
+  });
 
   // The settings sections the member may open; the hotkey lands on the first of
   // them, the same entry the sidebar links to.
