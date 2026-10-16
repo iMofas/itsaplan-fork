@@ -40,7 +40,7 @@ export default function ActivityLine({
           <Icon className="size-3.5" />
         </span>
       )}
-      <span className="min-w-0 flex-1 pt-0.5 text-muted-foreground">
+      <span className="min-w-0 flex-1 pt-0.5 wrap-break-word text-muted-foreground">
         <span className="font-medium text-foreground/85">{actor}</span> {line}
         {popover && (
           <Popover>
