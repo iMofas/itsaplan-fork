@@ -15,6 +15,7 @@ export type ShellRoute = {
   routeIssueSeq: number | null;
   routeInitiativeId: number | null;
   routeCycleId: number | null;
+  routeDocumentId: number | null;
   // The work items routes, where the layout and selection commands apply.
   onBoard: boolean;
 };
@@ -51,6 +52,7 @@ export function useShellRoute(): ShellRoute {
     // and a record when it is a number.
     routeInitiativeId: sub === 'initiatives' ? numericSegment(segs[3]) : null,
     routeCycleId: sub === 'cycles' ? numericSegment(segs[3]) : null,
+    routeDocumentId: sub === 'docs' ? numericSegment(segs[3]) : null,
     onBoard: sub == null || sub === 'view',
   };
 }

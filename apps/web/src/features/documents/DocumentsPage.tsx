@@ -6,6 +6,7 @@ import { useShellRoute } from '@/hooks/useShellRoute';
 import { useShell } from '@/context/shellContext';
 import { usePermissions } from '@/hooks/usePermissions';
 import { useLiveRefresh } from '@/hooks/useLiveRefresh';
+import { useDocumentTitle } from '@/hooks/useDocumentTitle';
 import { revScope } from '@/utils/revScopes';
 import { qk } from '@/services/queryKeys';
 import { documentsPath, documentPath } from '@/utils/paths';
@@ -85,6 +86,12 @@ export default function DocumentsPage() {
       : document,
   );
   const documentQuery = useDocumentQuery(projectKey, documentId);
+  const documentTitle = documentQuery.data?.title.trim() || t('untitled');
+  useDocumentTitle(
+    documentId !== null && documentQuery.data && project
+      ? `${documentTitle} · ${project.project.name}`
+      : null,
+  );
   const createDocument = useCreateDocument(projectKey);
   const deleteDocument = useDeleteDocument(projectKey);
   const duplicateDocument = useDuplicateDocument(projectKey);

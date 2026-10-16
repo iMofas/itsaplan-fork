@@ -47,6 +47,10 @@ const nextConfig: NextConfig = {
   // a local image unless its path is listed here; the attachments panel stamps a
   // replaced attachment's URL with one so the optimizer refetches it.
   images: { localPatterns: [{ pathname: '/media/**' }] },
+  // Metadata goes into the initial <head> instead of streaming in after hydration.
+  // Streamed, it adds a second <title> that overrides the tab title the Shell sets
+  // on first load (useShellDocumentTitle).
+  htmlLimitedBots: /.*/,
   ...(cloudUiEntry ? { turbopack: { resolveAlias: { '@/cloud': cloudUiEntry } } } : {}),
 };
 
